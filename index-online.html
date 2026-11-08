@@ -353,7 +353,7 @@
 
     <div id="padPanel">
       <div class="hd">
-        <span>🎮 翻页器按键<span class="badge">v0.16</span></span>
+        <span>🎮 翻页器按键<span class="badge">v0.18</span></span>
         <button class="x" id="padClose">×</button>
       </div>
       <div class="master">
@@ -386,11 +386,11 @@
         <span id="padLast">最近收到：—</span>
         <button class="ghost" id="padReset">恢复默认</button>
       </div>
-      <div class="tip">只有<b>单击</b>：按下即生效。每行「动作」可自由选，比如把<b>上一页</b>改成「切到语音跟读」、<b>下一页</b>改成「切到自动滚动」。点「重绑」后按一下翻页器上的按键即可改绑，Esc 取消。<b>音量键</b>由 Windows 处理，网页通常收不到，按了没反应就改绑到别的键。</div>
+      <div class="tip">固定 <b>5 个按键</b>：上一页、下一页、音量 +、音量 −、Tab（不需要的勾掉「启用」）。只有<b>单击</b>：按下即生效。每行「动作」可自由选，比如把<b>上一页</b>改成「切到语音跟读」、<b>下一页</b>改成「切到自动滚动」。点「重绑」后按一下翻页器上的按键即可改绑，Esc 取消。<b>音量键</b>由 Windows 处理，网页通常收不到，按了没反应就改绑到别的键。</div>
     </div>
     <div id="anchorPanel">
       <div class="hd">
-        <span>⚓ 阅读锚点<span class="badge">v0.16</span></span>
+        <span>⚓ 阅读锚点<span class="badge">v0.18</span></span>
         <button class="x" id="anchorClose">×</button>
       </div>
       <div class="row">
@@ -469,7 +469,7 @@
       <br>· 想全屏无地址栏：Safari 点分享 →「添加到主屏幕」，安卓 Chrome 菜单 →「添加到主屏幕」，从图标打开即可。<br><br>
       <b>载入讲稿：</b>「打开文档」支持 .docx 与 .txt；也可「粘贴文本」或直接把文件拖入窗口。<br><br>
       <b>默认演示稿（v0.14）：</b>启动时会自动载入同目录下的 <b>古诗词三首说课稿.docx</b> 作为演示稿；取不到磁盘文件时退回内置副本，不用手动打开。想换成自己的稿子，直接「打开文档」或拖进来即可。<br><br>
-      <b>翻页器（v0.16）：</b>点顶部「🎮 翻页器」开启后，<b>绑定过的按键只由提词器处理</b>，不再触发浏览器滚动/翻页；点旁边的「⚙」可以改绑定、单独停用某个键。<b>只保留单击</b>（长按与双击已移除），按下即生效。默认：<b>上一页 = 快进</b>（字数可调，默认 12 字）、<b>下一页 = 快退</b>、<b>音量 +/- = 滚动速度加减</b>、<b>Tab = 开始/暂停</b>。<b>快进/快退是连续滑过去的</b>，不会一格一格跳：程序按字符位置做一段约 0.3~0.9 秒的缓入缓出滑动，和朗读时的滑动完全同一条路径。<br>
+      <b>翻页器（v0.18）：</b>点顶部「🎮 翻页器」开启后，<b>绑定过的按键只由提词器处理</b>，不再触发浏览器滚动/翻页；点旁边的「⚙」可以改绑定、单独停用某个键。<b>只保留单击</b>（长按与双击已移除），按下即生效。面板固定 <b>5 个按键</b>：上一页、下一页、音量 +、音量 −、Tab。默认：<b>上一页 = 快进</b>（字数可调，默认 12 字）、<b>下一页 = 快退</b>、<b>音量 +/- = 滚动速度加减</b>、<b>Tab = 开始/暂停</b>。<b>快进/快退是连续滑过去的</b>，不会一格一格跳：程序按字符位置做一段约 0.3~0.9 秒的缓入缓出滑动，和朗读时的滑动完全同一条路径。<br>
       <b>上下翻页键可改成切模式：</b>在「⚙」里把某一键的「动作」选成 <b>切到语音跟读</b> 或 <b>切到自动滚动</b> 即可 —— 例如上一页 = 切语音跟读、下一页 = 切自动滚动，切换后对应按钮会自动高亮；跟读用在线还是离线，在「⚙」的「跟读方式」里选。音量键由 Windows 处理、网页常常收不到，若按了没反应，用「重绑」换成别的键即可。<br><br>
       <b>三种模式可随时互切（v0.14）：</b>「▶ 开始（自动滚动）」「🎤 在线跟读」「🎧 离线跟读」彼此互斥——跟读中点了自动滚动，会立刻退出语音识别并切到自动滚动；跟读中点了另一种跟读，也会先退出前一种。三种方式都<b>从当前读到的那一句接着走</b>，不会回到开头（要回开头点「↺ 复位」）。<br><br>
       <b>点击跳转（v0.14）：</b>用鼠标<b>直接点正文里的任意一个字</b>，提词位置立刻跳到那个词上，正在自动滚动或跟读时也会从新位置继续。鼠标划过正文会变成手型；拖动选中文字时不会误跳。<br><br>
@@ -604,9 +604,25 @@ function padDefaultBindings(){
     {id:'k2', name:'下一页键', code:'PageDown',        key:'PageDown',        kc:34,  tap:'seekBack',   enabled:true },
     {id:'k3', name:'音量 +',   code:'AudioVolumeUp',   key:'AudioVolumeUp',   kc:175, tap:'speedUp',    enabled:true },
     {id:'k4', name:'音量 -',   code:'AudioVolumeDown', key:'AudioVolumeDown', kc:174, tap:'speedDown',  enabled:true },
-    {id:'k5', name:'其它键',   code:'',                key:'',                kc:0,   tap:'togglePlay', enabled:false },
     {id:'k6', name:'Tab 键',   code:'Tab',             key:'Tab',             kc:9,   tap:'togglePlay', enabled:true }
   ];
+}
+/* v0.18：绑定的键固定为 5 个（上一页 / 下一页 / 音量 + / 音量 − / Tab）。
+   原来那个「其它键」是占位用的，翻页器上并没有这个键，已经删掉。
+   恢复时按 id 对齐、不再按下标 —— 否则老配置（6 条）会把「其它键」顶到 Tab 身上，
+   把用户设好的 Tab 绑定挤掉。老配置里的 k5 直接丢弃。 */
+function padApplySaved(saved, forceDisabled){
+  const defs = padDefaultBindings();
+  const byId = {};
+  (saved || []).forEach(b => { if (b && b.id) byId[b.id] = b; });
+  return padNormalizeBindings(defs.map((def, i) => {
+    let src = byId[def.id];
+    if (!src) { const legacy = saved && saved[i]; if (legacy && !legacy.id) src = legacy; }
+    const o = Object.assign({}, def, forceDisabled ? { enabled: false } : {}, src || {});
+    o.id = def.id;            // id / 名称始终用新版的，别让老配置把行标题改回去
+    o.name = def.name;
+    return o;
+  }));
 }
 
 /* ===== v0.2 文字锚点：纵向=行位置，横向=词位置 ===== */
@@ -2069,10 +2085,7 @@ function padLoad(){
     if(isFinite(+d.tapChars))  padTapChars  = Math.max(1,Math.min(120,+d.tapChars));
     if(isFinite(+d.volStep))   padVolStep   = Math.max(0.05,Math.min(1,+d.volStep));
     if(d.follow==='offline'||d.follow==='online') padFollowKind=d.follow;
-    if(Array.isArray(d.bindings)){
-      const defs=padDefaultBindings();
-      padBindings=padNormalizeBindings(defs.map((def,i)=>Object.assign({},def,d.bindings[i]||{})));
-    }
+    if(Array.isArray(d.bindings)) padBindings=padApplySaved(d.bindings, false);
   }catch(_){}
   padSyncUi();
 }
@@ -2697,10 +2710,7 @@ function applyConfig(cfg){
     if(isFinite(+q.tapChars))  padTapChars  = Math.max(1,Math.min(120,+q.tapChars));
     if(isFinite(+q.volStep))   padVolStep   = Math.max(0.05,Math.min(1,+q.volStep));
     if(q.follow==='offline'||q.follow==='online') padFollowKind=q.follow;
-    if(Array.isArray(q.bindings)){
-      const defs=padDefaultBindings();
-      padBindings=padNormalizeBindings(defs.map((def,i)=>Object.assign({},def,{enabled:false},q.bindings[i]||{})));
-    }
+    if(Array.isArray(q.bindings)) padBindings=padApplySaved(q.bindings, true);
     padSyncUi();
   }
   if(typeof cfg.showAnchorLine==='boolean'){
