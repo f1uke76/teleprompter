@@ -1,0 +1,9 @@
+# WorkBuddy 内部数据（记忆、会话缓存），不入库
+.workbuddy/
+
+# 系统 / 编辑器杂项
+Thumbs.db
+desktop.ini
+.DS_Store
+*.tmp
+~$*

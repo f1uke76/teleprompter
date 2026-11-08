@@ -1,0 +1,144 @@
+﻿# 按键记录   开始 2026-11-08 23:53:00
+# 虚键码 VK   扫描码   动作   扩展键   说明
+  3.85s   VK 160 (0xA0)   扫描码  42   down   -   
+  3.86s   VK 116 (0x74)   扫描码  63   down   -   F5（常见全屏键）
+  3.96s   VK 160 (0xA0)   扫描码  42   up     -   
+  3.96s   VK 116 (0x74)   扫描码  63   up     -   F5（常见全屏键）
+  4.11s   VK 164 (0xA4)   扫描码  56   down   -   
+  4.11s   VK  91 (0x5B)   扫描码  91   down   ext   
+  4.11s   VK  80 (0x50)   扫描码  25   down   -   P
+  4.20s   VK 164 (0xA4)   扫描码  56   up     -   
+  4.20s   VK  91 (0x5B)   扫描码  91   up     ext   
+  4.20s   VK  80 (0x50)   扫描码  25   up     -   P
+  7.31s   VK  33 (0x21)   扫描码  73   down   ext   PageUp（上一页/上一张）
+  7.40s   VK  33 (0x21)   扫描码  73   up     ext   PageUp（上一页/上一张）
+  8.13s   VK  33 (0x21)   扫描码  73   down   ext   PageUp（上一页/上一张）
+  8.27s   VK  33 (0x21)   扫描码  73   up     ext   PageUp（上一页/上一张）
+ 10.03s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 10.56s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 10.56s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 10.60s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 10.65s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 10.65s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 10.70s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 10.74s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 10.79s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 10.79s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 10.84s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 10.89s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 10.89s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 10.95s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 10.95s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 11.00s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 11.04s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 11.09s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 11.09s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 11.14s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 11.19s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 11.19s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 11.23s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 11.28s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 11.28s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 11.33s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 11.37s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 11.42s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 11.42s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 11.47s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 11.52s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 11.52s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 11.58s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 11.58s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 11.64s   VK  27 (0x1B)   扫描码   1   up     -   Esc
+ 15.71s   VK 160 (0xA0)   扫描码  42   down   -   
+ 15.71s   VK 116 (0x74)   扫描码  63   down   -   F5（常见全屏键）
+ 15.82s   VK 160 (0xA0)   扫描码  42   up     -   
+ 15.82s   VK 116 (0x74)   扫描码  63   up     -   F5（常见全屏键）
+ 15.96s   VK 164 (0xA4)   扫描码  56   down   -   
+ 15.96s   VK  91 (0x5B)   扫描码  91   down   ext   
+ 15.96s   VK  80 (0x50)   扫描码  25   down   -   P
+ 16.06s   VK 164 (0xA4)   扫描码  56   up     -   
+ 16.06s   VK  91 (0x5B)   扫描码  91   up     ext   
+ 16.06s   VK  80 (0x50)   扫描码  25   up     -   P
+ 19.67s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 20.20s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 20.24s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 20.25s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 20.29s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 20.34s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 20.38s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 20.44s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 20.44s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 20.44s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 20.50s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 20.50s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 20.55s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 20.55s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 20.62s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 20.68s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 20.68s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 20.73s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 20.77s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 20.78s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 20.82s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 20.87s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 20.87s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 20.92s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 20.96s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 20.97s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.01s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.06s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.06s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.11s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.15s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.20s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.20s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.25s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.30s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.30s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.34s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.39s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.39s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.44s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.49s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.49s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.53s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.60s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.60s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.65s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.65s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.71s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.77s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.77s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.83s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.84s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.88s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.93s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.93s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 21.98s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 22.02s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 22.03s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 22.07s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 22.12s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 22.12s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 22.16s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 22.21s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 22.26s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 22.26s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 22.31s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 22.35s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 22.36s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 22.40s   VK  27 (0x1B)   扫描码   1   down   -   Esc
+ 22.40s   VK  27 (0x1B)   扫描码   1   up     -   Esc
+ 25.31s   VK  66 (0x42)   扫描码  48   down   -   B（常见黑屏键）
+ 25.59s   VK  66 (0x42)   扫描码  48   up     -   B（常见黑屏键）
+ 30.39s   VK  66 (0x42)   扫描码  48   down   -   B（常见黑屏键）
+
+# ===== 去重汇总（按第一次出现的顺序） =====
+VK 160 (0xA0)  次数  4  
+VK 116 (0x74)  次数  4  F5（常见全屏键）
+VK 164 (0xA4)  次数  4  
+VK  91 (0x5B)  次数  4  
+VK  80 (0x50)  次数  4  P
+VK  33 (0x21)  次数  4  PageUp（上一页/上一张）
+VK  27 (0x1B)  次数 105  Esc
+VK  66 (0x42)  次数  3  B（常见黑屏键）

@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>翻页器 / 按键侦听器</title>
+<style>
+  :root{
+    --bg:#0d0f13; --panel:#16181d; --panel2:#22262e; --fg:#fff; --dim:#9aa3b5;
+    --accent:#3da9fc; --ok:#2e9e5b; --warn:#f0b429; --bad:#e5484d;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+    font-family:"微软雅黑","Microsoft YaHei",sans-serif;}
+  #wrap{max-width:1180px;margin:0 auto;padding:22px 20px 40px;}
+  h1{font-size:19px;margin:0 0 4px;}
+  .sub{color:var(--dim);font-size:12.5px;line-height:1.7;}
+  .sub b{color:#cfd6e4;}
+  .tag{display:inline-block;background:var(--panel2);border:1px solid #333;border-radius:6px;
+    padding:1px 7px;font-size:11px;color:#cfd6e4;margin-left:6px;vertical-align:1px;}
+
+  .grid{display:grid;grid-template-columns:1.35fr 1fr;gap:14px;margin-top:16px;}
+  @media (max-width:900px){ .grid{grid-template-columns:1fr;} }
+
+  .card{background:var(--panel);border:1px solid #2b3038;border-radius:12px;padding:14px 16px;}
+  .card h2{font-size:13px;margin:0 0 10px;color:#cfd6e4;font-weight:600;letter-spacing:.02em;}
+
+  /* 最后按键 */
+  #last{display:flex;align-items:center;gap:18px;background:var(--panel2);border:1px solid #333;
+    border-radius:12px;padding:16px 18px;margin-top:14px;}
+  #lastKey{font-size:34px;font-weight:700;line-height:1.1;letter-spacing:.01em;word-break:break-all;}
+  #lastMeta{font-size:12.5px;color:var(--dim);line-height:1.8;}
+  #lastMeta code{background:#000;border:1px solid #333;border-radius:5px;padding:1px 6px;
+    color:#9fe0ff;font-size:12px;}
+  #lastBadge{margin-left:auto;font-size:12px;padding:4px 10px;border-radius:999px;
+    background:#2a2f3a;color:#cfd6e4;white-space:nowrap;}
+  #lastBadge.hit{background:var(--ok);color:#fff;}
+
+  /* 日志 */
+  #log{height:330px;overflow:auto;font-size:12.5px;line-height:1.75;
+    font-family:Consolas,"Courier New",monospace;}
+  #log .row{display:flex;gap:10px;padding:2px 0;border-bottom:1px dashed #23272f;}
+  #log .t{color:#6d7791;flex:none;width:56px;text-align:right;}
+  #log .k{color:#ffd479;font-weight:700;min-width:96px;}
+  #log .c{color:#8fd3ff;}
+  #log .n{color:#7f8798;}
+  #log .rep{color:var(--warn);font-size:11px;}
+  #log .empty{color:#5c6478;padding:10px 0;}
+
+  /* 统计 */
+  #stat{font-size:12.5px;line-height:1.9;max-height:330px;overflow:auto;}
+  #stat table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  #stat th,#stat td{text-align:left;padding:5px 6px;border-bottom:1px solid #23272f;}
+  #stat th{color:#7f8798;font-weight:500;font-size:11.5px;}
+  #stat td.cnt{width:44px;text-align:right;color:var(--accent);font-weight:700;}
+  #stat code{background:#000;border:1px solid #333;border-radius:4px;padding:0 5px;color:#9fe0ff;font-size:11.5px;}
+
+  .note{margin-top:14px;font-size:12px;line-height:1.85;color:var(--dim);
+    background:#1a1d23;border:1px solid #2b3038;border-left:3px solid var(--warn);border-radius:8px;padding:11px 14px;}
+  .note b{color:#ffd479;}
+  .note code{background:#000;border:1px solid #333;border-radius:4px;padding:0 5px;color:#9fe0ff;}
+
+  .bar{display:flex;gap:8px;align-items:center;margin-top:12px;}
+  button{height:30px;padding:0 14px;font-size:13px;font-weight:600;border:none;border-radius:7px;
+    background:var(--accent);color:#001;cursor:pointer;font-family:inherit;}
+  button.ghost{background:var(--panel2);color:var(--fg);border:1px solid #444;}
+  .hintline{color:var(--dim);font-size:12px;margin-left:auto;}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <h1>翻页器 / 按键侦听器 <span class="tag">v1</span></h1>
+  <div class="sub">
+    本页只做一件事：把键盘收到的每一个按键原样打出来。<b>2.4G 翻页器在系统里就是一个键盘</b>，
+    按一下它的按钮，这里就会出现对应的键。<br>
+    用法：点一下页面空白处让页面获得焦点 → 依次按翻页器的 5 个按钮 → 每个按钮按下后，
+    看下面「最后按键」里的 <code>key</code> 与 <code>code</code> 是什么。
+  </div>
+
+  <div id="last">
+    <div id="lastKey">等待按键…</div>
+    <div id="lastMeta"></div>
+    <div id="lastBadge">未收到</div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>事件流（最近 200 条）</h2>
+      <div id="log"><div class="empty">按下按键后，这里会逐条记录 keydown / keyup。</div></div>
+    </div>
+    <div class="card">
+      <h2>按键统计（每个键按了几次）</h2>
+      <div id="stat"><div class="empty" style="color:#5c6478">还没有按键。</div></div>
+    </div>
+  </div>
+
+  <div class="bar">
+    <button class="ghost" id="clearBtn">清空</button>
+    <button id="copyBtn">复制结果</button>
+    <span class="hintline">按键统计里的「第 1 次按下」时间也能帮你对上哪个按钮是哪个。</span>
+  </div>
+
+  <div class="note">
+    <b>如果某个按钮按下去这里毫无反应</b>，说明它发的是<b>系统媒体键</b>（音量加/减、静音、播放/暂停）。
+    这类键由 Windows 直接吃掉去调音量，浏览器<b>收不到</b>键盘事件——这是系统层面的限制，不是网页写错了。
+    判断办法：按下去时<b>看右下角音量条有没有动</b>。会动 = 媒体键；不动且这里也没记录 = 需要另想办法（比如用厂商配的软件改键）。<br>
+    <b>想把音量键也一起确认：</b>双击同目录的 <b>「按键监听-系统级.cmd」</b>（60 秒），它挂的是 Windows 全局键盘钩子，
+    连媒体键都能抓到，结果会打印并写进 <code>按键记录.txt</code>。<br>
+    <b>常见翻页器键值对照：</b>上一页 <code>PageUp</code>／下一页 <code>PageDown</code>；
+    有些型号用 <code>ArrowLeft</code>/<code>ArrowRight</code> 或 <code>B</code>(黑屏)/<code>F5</code> 全屏。
+    如果那个「不知名按键」报的是 <code>F5</code>、<code>Escape</code>、<code>B</code>、<code>Period</code>，
+    基本就是全屏/黑屏键。
+  </div>
+</div>
+
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const lastKeyEl=$('lastKey'), lastMetaEl=$('lastMeta'), lastBadgeEl=$('lastBadge');
+const logEl=$('log'), statEl=$('stat');
+
+let rows=[];                    // {t,type,key,code,keyCode,repeat}
+let statMap=new Map();          // key+code -> {key,code,keyCode,firstAt,count}
+let t0=performance.now();
+let seq=0;
+
+const SPECIAL={ ' ': '空格', 'Space':'空格', 'AudioVolumeUp':'音量+（系统媒体键）', 'AudioVolumeDown':'音量-（系统媒体键）',
+  'AudioVolumeMute':'静音（系统媒体键）', 'MediaPlayPause':'播放/暂停（系统媒体键）', 'MediaTrackNext':'下一曲',
+  'MediaTrackPrevious':'上一曲', 'BrowserBack':'浏览器后退', 'Unidentified':'未识别' };
+
+function fmtTime(ms){
+  const s=(ms)/1000;
+  return s.toFixed(2)+'s';
+}
+function keyLabel(k){
+  if(!k) return '（空）';
+  if(k===' ') return '空格 (Space)';
+  return k;
+}
+function renderLast(e,type){
+  lastKeyEl.textContent=keyLabel(e.key);
+  const mods=[];
+  if(e.ctrlKey) mods.push('Ctrl'); if(e.altKey) mods.push('Alt');
+  if(e.shiftKey) mods.push('Shift'); if(e.metaKey) mods.push('Win');
+  lastMetaEl.innerHTML=
+     'key <code>'+esc(e.key)+'</code> · code <code>'+esc(e.code||'—')+'</code>'+
+     ' · keyCode <code>'+e.keyCode+'</code>'+
+     '<br>类型 <code>'+type+'</code> · 位置 <code>'+e.location+'</code>'+
+     (mods.length?(' · 修饰 <code>'+mods.join('+')+'</code>'):'')+
+     (SPECIAL[e.key]?(' · '+SPECIAL[e.key]):'');
+  lastBadgeEl.textContent=(type==='keydown'?'已收到 keydown':'已收到 keyup');
+  lastBadgeEl.className='hit';
+}
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function addRow(e,type){
+  seq++;
+  rows.push({t:performance.now()-t0,type,key:e.key,code:e.code||'',keyCode:e.keyCode,repeat:!!e.repeat,seq});
+  if(rows.length>200) rows.shift();
+  renderLog();
+  if(type==='keydown' && !e.repeat){
+    const id=(e.key||'')+'|'+(e.code||'')+'|'+e.keyCode;
+    const cur=statMap.get(id);
+    if(cur){ cur.count++; }
+    else statMap.set(id,{key:e.key,code:e.code||'',keyCode:e.keyCode,firstAt:performance.now()-t0,count:1});
+    renderStat();
+  }
+}
+function renderLog(){
+  if(!rows.length){ logEl.innerHTML='<div class="empty">按下按键后，这里会逐条记录 keydown / keyup。</div>'; return; }
+  const html=rows.slice().reverse().map(r=>
+    '<div class="row">'+
+      '<span class="t">'+fmtTime(r.t)+'</span>'+
+      '<span class="k">'+esc(keyLabel(r.key))+'</span>'+
+      '<span class="c">'+esc(r.code||'—')+'</span>'+
+      '<span class="n">keyCode '+r.keyCode+(r.type==='keyup'?' · up':'')+'</span>'+
+      (r.repeat?'<span class="rep">重复</span>':'')+
+    '</div>').join('');
+  logEl.innerHTML=html;
+}
+function renderStat(){
+  if(!statMap.size){ statEl.innerHTML='<div class="empty" style="color:#5c6478">还没有按键。</div>'; return; }
+  const list=[...statMap.values()].sort((a,b)=>a.firstAt-b.firstAt);
+  const trs=list.map(s=>
+    '<tr><td><b>'+esc(keyLabel(s.key))+'</b></td><td><code>'+esc(s.code||'—')+'</code></td>'+
+    '<td><code>'+s.keyCode+'</code></td><td style="color:#7f8798">'+fmtTime(s.firstAt)+'</td>'+
+    '<td class="cnt">'+s.count+'</td></tr>').join('');
+  statEl.innerHTML='<table><thead><tr><th>key</th><th>code</th><th>keyCode</th><th>首次</th><th>次数</th></tr></thead><tbody>'+trs+'</tbody></table>';
+}
+
+document.addEventListener('keydown',e=>{
+  addRow(e,'keydown'); renderLast(e,'keydown');
+  /* 这些键在浏览器里有默认行为（翻页会滚动），这里只记录、不阻止，方便看原始键值 */
+},true);
+document.addEventListener('keyup',e=>{
+  addRow(e,'keyup'); renderLast(e,'keyup');
+},true);
+
+/* 媒体键兜底：如果浏览器把音量/播放键交给了 Media Session，这里能收到 */
+try{
+  if('mediaSession' in navigator){
+    const acts=['play','pause','stop','previoustrack','nexttrack','seekbackward','seekforward'];
+    acts.forEach(a=>{
+      try{ navigator.mediaSession.setActionHandler(a,()=>{
+        const fake={key:'MediaSession:'+a,code:'MediaSession:'+a,keyCode:0,location:0,
+                    ctrlKey:false,altKey:false,shiftKey:false,metaKey:false,repeat:false};
+        addRow(fake,'keydown'); renderLast(fake,'keydown(MediaSession)');
+      }); }catch(_){}
+    });
+  }
+}catch(_){}
+
+$('clearBtn').onclick=()=>{
+  rows=[]; statMap.clear(); t0=performance.now(); renderLog(); renderStat();
+  lastKeyEl.textContent='等待按键…'; lastMetaEl.textContent=''; lastBadgeEl.textContent='未收到'; lastBadgeEl.className='';
+};
+$('copyBtn').onclick=async ()=>{
+  const lines=['【按键统计】'];
+  [...statMap.values()].sort((a,b)=>a.firstAt-b.firstAt).forEach(s=>{
+    lines.push('key='+s.key+'  code='+(s.code||'—')+'  keyCode='+s.keyCode+'  次数='+s.count+'  首次='+fmtTime(s.firstAt));
+  });
+  lines.push('','【最近事件】');
+  rows.slice(-20).forEach(r=>lines.push(fmtTime(r.t)+'  '+r.type+'  key='+r.key+'  code='+(r.code||'—')+'  keyCode='+r.keyCode+(r.repeat?' (重复)':'')));
+  const txt=lines.join('\n');
+  try{ await navigator.clipboard.writeText(txt); $('copyBtn').textContent='已复制'; }
+  catch(_){
+    const ta=document.createElement('textarea'); ta.value=txt; document.body.appendChild(ta);
+    ta.select(); try{ document.execCommand('copy'); $('copyBtn').textContent='已复制'; }catch(__){ $('copyBtn').textContent='复制失败'; }
+    ta.remove();
+  }
+  setTimeout(()=>{ $('copyBtn').textContent='复制结果'; },1500);
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,2645 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能提词器 v0.15 · Teleprompter</title>
+<style>
+  :root{
+    --bg:#000; --fg:#fff; --accent:#3da9fc; --panel:#16181d; --panel2:#22262e; --line:rgba(61,169,252,.35);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;font-family:"微软雅黑","Microsoft YaHei",sans-serif;background:var(--panel);color:var(--fg);}
+  #app{display:flex;flex-direction:column;height:100vh;overflow:hidden;}
+
+  /* 顶部工具栏 */
+  #toolbar{
+    display:flex;flex-wrap:wrap;gap:8px;align-items:center;
+    padding:8px 12px;background:var(--panel2);border-bottom:1px solid #333;
+    flex:0 0 auto;align-content:flex-start;   /* v0.14：工具栏按内容撑高，绝不被子元素挤扁 */
+  }
+  #toolbar .grp{display:flex;align-items:center;gap:6px;padding:2px 8px;background:var(--panel);border-radius:8px;}
+  /* v0.9：file:// 打开时的提示条（浏览器不记住麦克风授权，朗读中会再问） */
+  #fileWarn{display:none;align-items:center;gap:8px;padding:6px 12px;background:#5a3a00;color:#ffd98a;
+    border-bottom:1px solid #7a5200;font-size:12.5px;line-height:1.4;flex:0 0 auto;}
+  body.file-mode #fileWarn{display:flex;}
+  #fileWarn b{color:#ffc247;}
+  #fileWarn .sp{flex:1;}
+  #fileWarn a{color:#8fd3ff;text-decoration:underline;cursor:pointer;}
+  #fileWarn button{background:none;border:none;color:#ffd98a;font-size:15px;cursor:pointer;padding:0 4px;font-weight:400;height:22px;min-height:22px;}
+  #toolbar label{font-size:12px;opacity:.8;}
+  /* v0.12：所有控件统一高度/圆角/字号，按钮宽度不随文字变化而跳动 */
+  button,select,input[type=file]::file-selector-button{
+    height:30px;min-height:30px;padding:0 12px;font-size:13px;font-weight:600;
+    border:none;border-radius:7px;cursor:pointer;line-height:1;
+    display:inline-flex;align-items:center;justify-content:center;
+    background:var(--accent);color:#001;box-sizing:border-box;vertical-align:middle;
+    white-space:nowrap;font-family:inherit;
+  }
+  button.ghost{background:var(--panel);color:var(--fg);border:1px solid #444;}
+  button.danger{background:#e5484d;color:#fff;}
+  button.on{background:#2e9e5b;color:#fff;}
+  select{background:var(--panel);color:var(--fg);border:1px solid #444;font-weight:400;padding:0 8px;}
+  /* v0.14：滑块 + 数字框 + 单位 三件套在字号/行距/速度三处完全一致 */
+  #toolbar input[type=range]{width:100px;vertical-align:middle;margin:0;}
+  .num{
+    width:64px;height:30px;background:var(--panel);color:var(--fg);border:1px solid #444;border-radius:7px;
+    padding:0 6px;font-size:13px;text-align:center;font-family:inherit;font-variant-numeric:tabular-nums;
+    -moz-appearance:textfield;appearance:textfield;
+  }
+  .num::-webkit-outer-spin-button,.num::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+  .num:focus{outline:none;border-color:var(--accent);}
+  .unit{font-size:12px;min-width:34px;text-align:left;opacity:.6;white-space:nowrap;}
+  .val{font-size:12px;min-width:38px;text-align:center;opacity:.85;}
+  /* 会变文字的按钮固定宽度，避免点一下整排控件乱跳 */
+  #autoBtn{min-width:78px;}
+  #micBtn{min-width:124px;}
+  #offlineBtn{min-width:124px;}
+  #hlBtn{min-width:112px;}
+  #anchorBtn{min-width:108px;}
+  #expCfgBtn,#impCfgBtn{min-width:104px;}
+  #fsBtn{min-width:74px;}
+  #resetBtn{min-width:74px;}
+  #helpBtn{min-width:34px;padding:0 8px;}
+  /* v0.14：识别状态小灯（原演示条里的状态灯，移到工具栏常驻） */
+  #statusChip{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 10px;border-radius:7px;
+    background:var(--panel);border:1px solid #333;font-size:12.5px;color:#cfd6e4;white-space:nowrap;}
+  #statusChip::before{content:"";width:8px;height:8px;border-radius:50%;background:#8a93a6;flex:none;}
+  #statusChip.live::before{background:#2e9e5b;box-shadow:0 0 8px #2e9e5b;}
+  #statusChip.warn::before{background:#e5484d;box-shadow:0 0 8px #e5484d;}
+  #statusChip.exp::before{background:#c08a2d;box-shadow:0 0 8px #c08a2d;}
+
+  /* 舞台 */
+  #stage{position:relative;flex:1;background:var(--bg);overflow:hidden;}
+  #scriptWrap{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;scroll-behavior:auto;}
+  #script{
+    white-space:nowrap;line-height:1.55;
+    padding:35vh 0 65vh 0;color:var(--fg);font-size:48px;
+    -webkit-mask-image:linear-gradient(to right,transparent 0,#000 2.5%,#000 97.5%,transparent 100%);
+    mask-image:linear-gradient(to right,transparent 0,#000 2.5%,#000 97.5%,transparent 100%);
+  }
+  /* 逐行模式：每句一行，不换行，行内横向滚动 */
+  .ln{overflow:hidden;white-space:nowrap;transition:opacity .25s;}
+  /* v0.14：点击文字跳转 —— 手型提示，选中文本时不误触发 */
+  #script .ln{cursor:pointer;}
+  .ln-in{display:inline-block;white-space:nowrap;will-change:transform;padding:0 .15em;}
+  /* v0.3：短句拼接后，句与句之间留一点气口 */
+  .ln .seg{display:inline;}
+  .ln .seg+.seg{margin-left:.26em;}
+  #script.focus .ln{opacity:.45;}
+  #script.focus .ln.on{opacity:1;}
+  #script .hlw{background:rgba(255,196,0,.62);border-radius:6px;box-shadow:0 0 14px rgba(255,196,0,.4);}
+  #script .hlw-next{background:rgba(255,214,0,.16);border-radius:6px;}
+  /* v0.4：高亮开关（只去掉底色，span 仍保留，横滚靠它测位置） */
+  body.hl-off #script .hlw{background:none;box-shadow:none;}
+  body.hl-off #script .hlw-next{background:none;}
+  #readLine{
+    position:absolute;left:0;right:0;top:35%;height:0;border-top:2px solid var(--line);
+    box-shadow:0 0 12px var(--line);pointer-events:none;
+  }
+  #readLine::after{content:"";position:absolute;left:0;right:0;top:8px;height:2px;background:var(--line);opacity:.5;}
+  /* 横向锚点标记（词固定停留的竖向位置） */
+  #anchorTick{position:absolute;left:30%;width:3px;height:110px;transform:translate(-50%,-50%);
+    background:linear-gradient(to bottom,rgba(61,169,252,.10),rgba(61,169,252,.85),rgba(61,169,252,.10));
+    pointer-events:none;border-radius:2px;}
+  #anchorTick.hide{display:none;}
+
+  /* 状态条 */
+  #status{
+    display:flex;gap:14px;align-items:center;padding:5px 12px;font-size:12px;
+    background:var(--panel2);border-top:1px solid #333;opacity:.9;flex:0 0 auto;
+  }
+  #status .tag{padding:2px 8px;border-radius:10px;background:var(--panel);}
+  #status .tag.live{background:#2e9e5b;}
+  #status .tag.off{background:#e5484d;}
+  #status .tag.exp{background:#c08a2d;}
+  #lastText{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.8;}
+
+  /* 弹窗 */
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:50;}
+  .modal.show{display:flex;}
+  .modal .box{background:var(--panel2);border:1px solid #444;border-radius:12px;padding:20px;width:min(560px,92vw);max-height:86vh;overflow:auto;}
+  .modal h3{margin:0 0 12px;}
+  .modal textarea{width:100%;height:220px;background:var(--panel);color:var(--fg);border:1px solid #444;border-radius:8px;padding:10px;font-size:15px;line-height:1.5;resize:vertical;}
+  .modal .row{display:flex;gap:8px;justify-content:flex-end;margin-top:12px;}
+  .hint{font-size:12px;opacity:.7;line-height:1.6;}
+  .drop{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+    background:rgba(61,169,252,.15);border:3px dashed var(--accent);font-size:22px;z-index:40;pointer-events:none;}
+  .drop.show{display:flex;}
+
+
+  /* ===== v0.15 翻页器面板 ===== */
+  #padPanel{
+    position:absolute;left:14px;top:14px;z-index:36;width:378px;max-height:calc(100vh - 160px);overflow:auto;
+    background:rgba(18,20,26,.95);border:1px solid #3a3f4b;border-radius:12px;padding:12px 14px 12px;
+    box-shadow:0 10px 30px rgba(0,0,0,.5);backdrop-filter:blur(8px);display:none;
+  }
+  #padPanel.show{display:block;}
+  #padPanel .hd{display:flex;align-items:center;justify-content:space-between;font-size:13px;font-weight:700;
+    margin-bottom:8px;color:#fff;}
+  #padPanel .hd .badge{font-size:10px;font-weight:600;color:#1b1300;background:#f0b429;padding:1px 6px;border-radius:999px;margin-left:6px;}
+  #padPanel .hd .x{background:none;border:none;color:#9aa3b5;font-size:18px;line-height:1;padding:0 2px;cursor:pointer;height:22px;min-height:22px;}
+  #padPanel .master{display:flex;align-items:center;gap:7px;background:#1a1d23;border:1px solid #2b3038;border-radius:8px;
+    padding:7px 9px;font-size:12.5px;color:#cfd6e4;margin-bottom:9px;}
+  #padPanel .master input{width:15px;height:15px;accent-color:#2e9e5b;}
+  #padPanel .pkey{border-top:1px solid #23272f;padding:6px 0 4px;}
+  #padPanel .pkey:first-child{border-top:none;}
+  #padPanel .prow{display:flex;align-items:center;gap:6px;}
+  #padPanel .kchip{font-size:11.5px;font-weight:700;background:#0b0d11;border:1px solid #3a3f4b;border-radius:5px;
+    padding:1px 6px;color:#9fe0ff;max-width:124px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  #padPanel .kchip.empty{color:#6d7791;font-weight:400;}
+  #padPanel .kname{font-size:11.5px;color:#7f8798;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  #padPanel .prow label.en{display:flex;align-items:center;gap:4px;font-size:11.5px;color:#cfd6e4;cursor:pointer;}
+  #padPanel .prow label.en input{width:13px;height:13px;accent-color:#2e9e5b;}
+  #padPanel button.rb,#padPanel button.cl{height:22px;min-height:22px;padding:0 7px;font-size:11.5px;font-weight:600;
+    background:#22262e;color:#cfd6e4;border:1px solid #3a3f4b;border-radius:5px;cursor:pointer;}
+  #padPanel button.cl{padding:0 6px;color:#9aa3b5;}
+  #padPanel button.rb.cap{background:#f0b429;color:#1b1300;border-color:#f0b429;}
+  #padPanel .prow2{display:flex;align-items:center;gap:4px;margin-top:4px;padding-left:2px;}
+  #padPanel .prow2 label{font-size:11px;color:#7f8798;flex:none;}
+  #padPanel .prow2 select{height:24px;font-size:11px;padding:0 2px;flex:1 1 0;min-width:0;}
+  #padPanel .pset{margin-top:10px;border-top:1px solid #23272f;padding-top:9px;}
+  #padPanel .pset .row{display:flex;align-items:center;gap:6px;margin:5px 0;}
+  #padPanel .pset .row label{font-size:11.5px;color:#cfd6e4;width:56px;flex:none;}
+  #padPanel .pset .row input[type=range]{flex:1;width:auto;}
+  #padPanel .pset .row .num{width:58px;height:24px;font-size:12px;}
+  #padPanel .pset .row .unit{min-width:26px;font-size:11px;}
+  #padPanel .pfoot{display:flex;align-items:center;gap:8px;margin-top:9px;}
+  #padPanel #padLast{flex:1;font-size:11px;color:#7f8798;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  #padPanel .pfoot button{height:24px;min-height:24px;padding:0 9px;font-size:11.5px;}
+  #padPanel .tip{font-size:11px;color:#7f8798;line-height:1.6;margin-top:8px;}
+  #padBtn{min-width:112px;}
+  body.pad-on #padBtn{background:#2e9e5b;color:#fff;border-color:#2e9e5b;}
+
+  #toast{position:absolute;left:50%;top:16px;transform:translateX(-50%);z-index:35;
+    background:rgba(18,20,26,.92);border:1px solid #3a3f4b;color:#eee;padding:9px 18px;border-radius:14px;
+    font-size:13px;line-height:1.55;opacity:0;transition:opacity .3s;pointer-events:none;white-space:normal;
+    max-width:min(90vw,760px);text-align:center;}
+  #toast.show{opacity:1;}
+
+  /* ===== v0.1 阅读锚点 ===== */
+  #readLine{transition:top .18s ease;}
+  #readLine::before{content:"";position:absolute;left:0;top:-5px;width:0;height:0;
+    border-left:9px solid var(--line);border-top:6px solid transparent;border-bottom:6px solid transparent;}
+  #readLine.hide{display:none;}
+  #anchorPanel{
+    position:absolute;right:14px;top:14px;z-index:36;width:288px;
+    background:rgba(18,20,26,.92);border:1px solid #3a3f4b;border-radius:12px;padding:12px 14px 13px;
+    box-shadow:0 10px 30px rgba(0,0,0,.5);backdrop-filter:blur(8px);display:none;
+  }
+  #anchorPanel.show{display:block;}
+  #anchorPanel .hd{display:flex;align-items:center;justify-content:space-between;font-size:13px;font-weight:700;margin-bottom:10px;color:#fff;}
+  #anchorPanel .hd .badge{font-size:10px;font-weight:600;color:#1b1300;background:#f0b429;padding:1px 6px;border-radius:999px;margin-left:6px;}
+  #anchorPanel .hd .x{background:none;border:none;color:#9aa3b5;font-size:18px;line-height:1;padding:0 2px;cursor:pointer;}
+  #anchorPanel .row{display:flex;align-items:center;gap:8px;margin:7px 0;}
+  #anchorPanel .row label{font-size:12px;color:#cfd6e4;width:52px;flex:none;white-space:nowrap;}
+  #anchorPanel .row input[type=range]{flex:1;width:auto;}
+  #anchorPanel .row .v{font-size:11px;color:#9aa3b5;width:44px;text-align:right;flex:none;font-variant-numeric:tabular-nums;}
+  #anchorPanel .row.chk{gap:6px;margin-top:10px;}
+  #anchorPanel .row.chk label{width:auto;font-size:12px;color:#cfd6e4;}
+  #anchorPanel .tip{font-size:11px;color:#7f8798;line-height:1.5;margin-top:6px;}
+  #anchorPanel .tip kbd{background:#2a2f3a;border-radius:4px;padding:0 4px;font-family:inherit;font-size:10px;color:#cfd6e4;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="toolbar">
+    <div class="grp">
+      <button id="openBtn">打开文档</button>
+      <input type="file" id="fileInput" accept=".docx,.txt" hidden>
+      <button class="ghost" id="pasteBtn">粘贴文本</button>
+    </div>
+
+    <div class="grp">
+      <button id="anchorBtn" class="ghost">⚓ 锚点位置</button>
+      <span class="val" style="opacity:.55">v0.15</span>
+    </div>
+
+    <div class="grp">
+      <label>字体</label>
+      <select id="fontSel" style="min-width:130px">
+        <option>微软雅黑</option><option>等线</option><option>黑体</option>
+        <option>宋体</option><option>楷体</option><option>仿宋</option>
+        <option>幼圆</option><option>隶书</option><option>华文中宋</option>
+        <option>Arial</option><option>Times New Roman</option><option>Verdana</option>
+        <option>Tahoma</option><option>Georgia</option><option>Courier New</option>
+        <option>sans-serif</option><option>serif</option>
+      </select>
+    </div>
+
+    <!-- v0.14：字号 / 行距 / 速度 三组控件结构完全一致：滑块 + 数字框 + 单位 -->
+    <div class="grp">
+      <label>字号</label>
+      <input type="range" id="sizeRange" min="20" max="180" step="1" value="48">
+      <input type="number" id="sizeNum" class="num" min="20" max="180" step="1" value="48">
+      <span class="unit">px</span>
+    </div>
+
+    <div class="grp">
+      <label>行距</label>
+      <input type="range" id="lhRange" min="1.1" max="2.4" step="0.1" value="1.5">
+      <input type="number" id="lhNum" class="num" min="1.1" max="2.4" step="0.1" value="1.5">
+      <span class="unit">倍</span>
+    </div>
+
+    <div class="grp">
+      <label>自动滚动</label>
+      <button id="autoBtn" class="ghost">▶ 开始</button>
+      <input type="range" id="speedRange" min="0.2" max="4" step="0.1" value="2.5">
+      <input type="number" id="speedNum" class="num" min="0.2" max="4" step="0.1" value="2.5">
+      <span class="unit">字/秒</span>
+    </div>
+
+    <div class="grp">
+      <button id="micBtn" class="ghost">🎤 在线跟读</button>
+      <button id="offlineBtn" class="ghost">🎧 离线跟读</button>
+    </div>
+
+    <div class="grp">
+      <button id="padBtn" class="ghost" title="开启后按键只由提词器接收（不再触发浏览器滚动）">🎮 翻页器</button>
+      <button id="padCfgBtn" class="ghost" title="按键绑定设置" style="min-width:34px;padding:0 8px;">⚙</button>
+    </div>
+
+    <div class="grp">
+      <span id="statusChip">待机</span>
+    </div>
+
+    <div class="grp">
+      <button id="hlBtn" class="ghost on" title="开关朗读时的词语高亮">🖍 词语高亮</button>
+      <button id="fsBtn" class="ghost">⛶ 全屏</button>
+      <button id="resetBtn" class="ghost">↺ 复位</button>
+      <button id="helpBtn" class="ghost">?</button>
+    </div>
+
+    <div class="grp">
+      <button id="expCfgBtn" class="ghost" title="把字体/字号/滚动速度/锚点等设置导出为文件">⬇ 导出配置</button>
+      <button id="impCfgBtn" class="ghost" title="从配置文件恢复所有设置">⬆ 导入配置</button>
+      <input type="file" id="cfgInput" accept=".json,application/json" hidden>
+    </div>
+  </div>
+
+  <!-- v0.9：仅在 file:// 打开时显示 -->
+  <div id="fileWarn">
+    <span>⚠ <b>当前是「双击文件」打开：浏览器不会记住麦克风授权</b>，识别每次断线重连都可能再问一次。</span>
+    <span class="sp"></span>
+    <a id="fileWarnHow">怎么彻底解决？</a>
+    <button id="fileWarnClose" title="关闭提示">×</button>
+  </div>
+
+  <div id="stage">
+    <div id="scriptWrap">
+      <div id="script">正在载入演示稿…\n\n若长时间没有内容：请点左上角「打开文档」选择 Word(.docx) 或文本(.txt)，或点「粘贴文本」直接输入讲稿。\n\n三种使用方式（可随时互相切换）：\n• 自动滚动：按设定速度匀速滚动，像朗读一样连续滑动。\n• 在线跟读：用浏览器自带语音识别，中文准确，需联网 + Chrome / Edge。\n• 离线跟读：首次会从网络下载中文模型（约 40MB），之后可断网使用。\n\n朗读时，讲稿会自动滚动到您正在读的位置；点正文任意一个字可直接跳转。</div>
+    </div>
+    <div id="readLine"></div>
+    <div id="anchorTick"></div>
+    <div class="drop" id="drop">松开以加载文档</div>
+    <div id="toast"></div>
+
+
+    <div id="padPanel">
+      <div class="hd">
+        <span>🎮 翻页器按键<span class="badge">v0.15</span></span>
+        <button class="x" id="padClose">×</button>
+      </div>
+      <div class="master">
+        <input type="checkbox" id="padOnCheck">
+        <label for="padOnCheck">使用翻页器：按键只给提词器用</label>
+      </div>
+      <div id="padList"></div>
+      <div class="pset">
+        <div class="row">
+          <label>快进字数</label>
+          <input type="range" id="padCharsRange" min="1" max="120" step="1" value="12">
+          <input type="number" class="num" id="padCharsNum" min="1" max="120" step="1" value="12">
+          <span class="unit">字</span>
+        </div>
+        <div class="row">
+          <label>长按倍数</label>
+          <input type="range" id="padFactorRange" min="1.5" max="6" step="0.1" value="2.5">
+          <input type="number" class="num" id="padFactorNum" min="1.5" max="6" step="0.1" value="2.5">
+          <span class="unit">倍</span>
+        </div>
+        <div class="row">
+          <label>音量步长</label>
+          <input type="range" id="padVolRange" min="0.05" max="1" step="0.05" value="0.1">
+          <input type="number" class="num" id="padVolNum" min="0.05" max="1" step="0.05" value="0.1">
+          <span class="unit">字/秒</span>
+        </div>
+        <div class="row">
+          <label>双击切到</label>
+          <select id="padFollowSel" style="height:26px;font-size:12px;flex:1;">
+            <option value="online">语音跟读（在线）</option>
+            <option value="offline">语音跟读（离线）</option>
+          </select>
+        </div>
+        <div class="row">
+          <label>长按判定</label>
+          <input type="range" id="padHoldRange" min="150" max="800" step="10" value="320">
+          <input type="number" class="num" id="padHoldNum" min="150" max="800" step="10" value="320">
+          <span class="unit">毫秒</span>
+        </div>
+      </div>
+      <div class="pfoot">
+        <span id="padLast">最近收到：—</span>
+        <button class="ghost" id="padReset">恢复默认</button>
+      </div>
+      <div class="tip">点「重绑」后按一下翻页器上的按键即可改绑；Esc 取消。<b>音量键</b>由 Windows 处理，网页通常收不到，按了没反应就改绑到别的键。</div>
+    </div>
+    <div id="anchorPanel">
+      <div class="hd">
+        <span>⚓ 阅读锚点<span class="badge">v0.15</span></span>
+        <button class="x" id="anchorClose">×</button>
+      </div>
+      <div class="row">
+        <label>上下</label>
+        <input type="range" id="anchorYRange" min="8" max="88" step="1" value="35">
+        <span class="v" id="anchorYVal">35%</span>
+      </div>
+      <div class="row">
+        <label>左右</label>
+        <input type="range" id="anchorXRange" min="5" max="95" step="1" value="30">
+        <span class="v" id="anchorXVal">30%</span>
+      </div>
+      <div class="row">
+        <label>预滚</label>
+        <input type="range" id="leadRange" min="0" max="1.5" step="0.05" value="0.65">
+        <span class="v" id="leadVal">0.65s</span>
+      </div>
+      <div class="row">
+        <label>语速跟随</label>
+        <input type="range" id="sensRange" min="0" max="100" step="5" value="30">
+        <span class="v" id="sensVal">30</span>
+      </div>
+      <div class="row chk">
+        <input type="checkbox" id="predCheck" checked>
+        <label for="predCheck">语速预测（提前滚动）</label>
+      </div>
+      <div class="row chk">
+        <input type="checkbox" id="mergeCheck" checked>
+        <label for="mergeCheck">短句与下一句拼接同行</label>
+      </div>
+      <div class="row chk">
+        <input type="checkbox" id="autoRecCheck" checked>
+        <label for="autoRecCheck">断线自动重连识别</label>
+      </div>
+      <div class="row chk">
+        <input type="checkbox" id="showAnchor" checked>
+        <label for="showAnchor">显示基准线</label>
+      </div>
+      <div class="tip" id="rateInfo">语速：估算中…</div>
+      <div class="tip">每句一行，整句像一列火车连续向左滑行（不是逐词跳动）。<br>
+        <b>语速跟随</b>：调小 = 速度更稳、几乎不动；调大 = 语速一变立刻跟上。<br>
+        <b>断线自动重连</b>：关掉后识别断线只停下、不自动重启（双击文件打开时，可避免朗读中反复询问麦克风）。<br>
+        <kbd>Alt</kbd>+<kbd>↑</kbd><kbd>↓</kbd> 调上下 · <kbd>Alt</kbd>+<kbd>←</kbd><kbd>→</kbd> 调左右</div>
+    </div>
+  </div>
+
+  <div id="status">
+    <span class="tag" id="modeTag">待机</span>
+    <span class="val" id="progVal">进度 0%</span>
+    <span id="lastText">—</span>
+  </div>
+</div>
+
+<!-- 粘贴弹窗 -->
+<div class="modal" id="pasteModal">
+  <div class="box">
+    <h3>粘贴 / 输入讲稿</h3>
+    <textarea id="pasteArea" placeholder="在此粘贴或输入讲稿文本…"></textarea>
+    <div class="row">
+      <button class="ghost" id="pasteCancel">取消</button>
+      <button id="pasteOk">载入</button>
+    </div>
+  </div>
+</div>
+
+<!-- 帮助弹窗 -->
+<div class="modal" id="helpModal">
+  <div class="box">
+    <h3>使用说明</h3>
+    <p class="hint">
+      <b>载入讲稿：</b>「打开文档」支持 .docx 与 .txt；也可「粘贴文本」或直接把文件拖入窗口。<br><br>
+      <b>默认演示稿（v0.14）：</b>启动时会自动载入同目录下的 <b>古诗词三首说课稿.docx</b> 作为演示稿；取不到磁盘文件时退回内置副本，不用手动打开。想换成自己的稿子，直接「打开文档」或拖进来即可。<br><br>
+      <b>翻页器（v0.15）：</b>点顶部「🎮 翻页器」开启后，<b>绑定过的按键只由提词器处理</b>，不再触发浏览器滚动/翻页；点旁边的「⚙」可以改绑定、单独停用某个键。默认：<b>点按上一页 = 快进</b>（字数可调，默认 12 字）、<b>长按上一页 = 临时加速</b>；<b>点按下一页 = 快退</b>、<b>长按下一页 = 临时减速</b>，松开立刻恢复原速；<b>音量 +/- = 滚动速度加减</b>；<b>Tab 单击 = 开始/暂停</b>，<b>Tab 双击 = 语音跟读 ↔ 自动滚动 互切</b>（跟读用在线还是离线，在「⚙」里先选好，切换后对应按钮会高亮）。跟读模式下点按同样能跳，长按则临时接管位置、松开后从新位置继续跟读。音量键由 Windows 处理、网页常常收不到，若按了没反应，用「重绑」换成别的键即可。<br><br>
+      <b>三种模式可随时互切（v0.14）：</b>「▶ 开始（自动滚动）」「🎤 在线跟读」「🎧 离线跟读」彼此互斥——跟读中点了自动滚动，会立刻退出语音识别并切到自动滚动；跟读中点了另一种跟读，也会先退出前一种。三种方式都<b>从当前读到的那一句接着走</b>，不会回到开头（要回开头点「↺ 复位」）。<br><br>
+      <b>点击跳转（v0.14）：</b>用鼠标<b>直接点正文里的任意一个字</b>，提词位置立刻跳到那个词上，正在自动滚动或跟读时也会从新位置继续。鼠标划过正文会变成手型；拖动选中文字时不会误跳。<br><br>
+      <b>显示调节：</b>顶部可切换字体、字号、行距。<b>字号</b>与<b>行距</b>都是「滑块 + 数字框」两件套：拖滑块即时生效，也可以直接在数字框里敲精确值（回车或点别处生效），超出范围会自动纠正。字号 20~180 px，行距 1.1~2.4 倍。<br><br>
+      <b>滚动控制：</b>「自动滚动」不是一整行一整行地往上跳，而是<b>和语音跟读完全一样</b>——当前句从锚点开始、像火车一样连续向左滑动，读到行尾再平滑换到下一行；同时当前词会高亮，进度也会走。速度单位是<b>字/秒</b>：<b>0.2 ~ 4.0，4.0 就是满量程</b>（4 字/秒已接近正常朗读上限；<b>顿号、逗号等标点也各算 1 个字</b>，所以句子里顿号多也不会突然变快）。滑块和数字框双向联动，默认 2.5。也可鼠标滚轮 / ↑↓ 键手动滚动；空格键开始/暂停自动滚动。<br><br>
+      <b>语音跟读（核心）：</b>点「🎤 在线跟读」并允许麦克风权限，开始朗读后讲稿会自动滚动到您正读到的位置（蓝色基准线处）；<b>当前读到的词会高亮，下一个词淡色提示</b>。跟读中按钮变成「⏹ 停止跟读」，再点一次即退出。<br><br>
+      <b>离线跟读（备选）：</b>点「🎧 离线跟读」首次会从网络下载约 40MB 中文模型，之后可断网使用，适合现场无网环境。按钮文案与在线跟读一致（启动中显示「🎧 准备中…」，运行中显示「⏹ 停止跟读」）。<br><br>
+      <b>配置导出 / 导入：</b>顶部「⬇ 导出配置」把字体、字号、行距、滚动速度、阅读锚点上下左右、预滚、语速跟随灵敏度、短句拼接、高亮开关、自动重连等一起存成一个小 json 文件；换电脑或换浏览器时点「⬆ 导入配置」选这个文件，所有设置立刻恢复。<br><br>
+      <b>逐行横滚：</b>讲稿按句号自动断行，<b>每句话独占一行、不换行</b>。每句的第一个字从十字竖线处开始，然后<b>像一列火车一样连续、匀速地向左滑行</b>——不是读到一个词才挪一格。上下一行的切换也是连续滑过去的。<br><br>
+      <b>阅读锚点：</b>点顶部「⚓ 锚点位置」可拖动「上下 / 左右」调整停留位置，也可用 <b>Alt+↑↓←→</b> 微调（按住 Shift 步长更大），设置会自动记住。<br><br>
+      <b>语速跟随：</b>在「⚓ 锚点位置」面板里。<b>调小</b>（例如 10）= 速度几乎恒定，只在你明显变快/变慢时才慢慢跟上，最稳；<b>调大</b>（例如 70）= 语速一变画面立刻跟上，适合即兴讲话。默认 30。<br><br>
+      <b>词语高亮开关：</b>顶部「🖍 词语高亮」，可随时开关朗读时的词语高亮（关掉后只保留“当前行更亮”的聚焦效果）。<br><br>
+      <b>短句拼接：</b>太短的句子会自动与下一句拼成一行（最多 3 句、且不超过一行宽），避免出现只有几个字的碎行；段落之间不拼接。可在「⚓ 锚点位置」面板里用「短句与下一句拼接同行」开关切换。<br><br>
+      <b>语速预测与预滚动：</b>连续朗读几秒后，程序会用<b>实测的推进速度</b>估算你的语速（面板里显示“字/秒”），并<b>按预测位置提前滚动</b>，所以文字是连续滑行而不是一格一格跳；识别结果一更新就立刻按实际语速校正回来。停顿超过 1 秒会自动停止预滚，不会越滚越远。「预滚」滑块控制提前量（0~1.5 秒）。<br><br>
+      <b>麦克风说明：</b>在线识别需允许麦克风权限并保持联网。若在应用内预览窗口中使用，浏览器可能拦截麦克风，请用 Chrome/Edge <b>直接打开 index-v0.15.html</b>；Chrome 的语音服务在部分网络下不可用，可改用 Edge。<br><br>
+      <b>⚠ 朗读中还会再问一次？用「本地服务」方式打开（推荐，能彻底消除）：</b>双击 HTML 时地址是 <code>file://</code>，Chrome 把它当成“一个文件”，<b>不会保存麦克风授权</b>；而语音识别会话会被浏览器周期性结束、需要重启，每次重启都可能再问一次。解决办法：双击同目录下的 <b>「启动提词器(推荐-免反复授权).cmd」</b>，它会用系统自带的脚本引擎在 <code>127.0.0.1:8765</code> 起一个本地小服务并自动打开浏览器。<b>第一次点「允许」后浏览器会记住</b>，之后整场朗读都不会再问。那个黑窗口不要关，关掉即停止服务（不影响已打开的页面）。<br><br>
+      <b>还可以这样临时缓解：</b>在「⚓ 锚点位置」面板里取消勾选 <b>「断线自动重连识别」</b>——识别断线后不再自动重启，而是停下来等您点「继续跟读」，这样就不会在读的过程中冒出权限窗口。<br><br>
+      <b>为什么以前朗读中会反复弹麦克风：</b>旧版在「每次识别断线重启」「设备被占用」「看门狗探活」三处都会主动向浏览器<b>重新申请一次麦克风</b>；而浏览器把 <code>file://</code> 页面视为不持久化的来源，每申请一次就可能弹一次窗。<b>v0.7 起：整场只在点「在线跟读」时申请一次</b>，之后只重启识别、绝不再碰设备；重启有指数退避和「60 秒最多 25 次」的硬上限，超限会停下并提示点一次「继续跟读」恢复。<br><br>
+      <b>麦克风中途失效：</b>朗读过程中如果麦克风被别的程序占用、USB 设备被拔掉、或系统回收了授权，程序会自动重连并继续识别，不需要你手动停止再点一次。工具栏的状态灯会显示「麦克风被占用，稍后重试…」，恢复后回到「识别中…」。<br><br>
+      <b>快捷键：</b>空格=自动滚动开关 · ↑/↓=手动滚动 · F=全屏 · R=复位 · Alt+↑↓←→=微调锚点。<br><br>
+      <b>分享：</b>本程序是单个 index-v0.15.html 文件，直接发给别人，用 Chrome / Edge 双击打开即可使用，无需安装。如需打包成 .exe，可后续用 Electron 封装（告诉我即可帮你加）。
+    </p>
+    <div class="row"><button class="ghost" id="micDiagBtn">🩺 麦克风诊断</button><button id="helpClose">知道了</button></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ============ 状态 ============ */
+const scriptWrap=document.getElementById('scriptWrap');
+const script=document.getElementById('script');
+const stage=document.getElementById('stage');
+
+let fullText='';
+let normFull='';            // 去除空白与标点的归一化文本
+let normMap=[];             // normMap[i] = 该归一化字符在原文本中的索引
+let searchFrom=0;           // 字符级模糊匹配的搜索起点（归一化索引）
+
+let scriptTokens=[];        // 词元：{s,e,t} 中文按字、英文/数字按词
+let tokCursor=0;            // 下一个预期词元下标（同步游标）
+let lastHLKey=-1;           // 上一次高亮的词元，避免重复重排
+let spokenText='';          // 累计识别文本
+let pendingT=null;          // 待处理的识别文本（rAF 节流）
+let rafScheduled=false;
+
+/* v0.2 逐行模式 */
+let lines=[];               // [{s,e,el,inner,tx,txT,pending}]
+let tokLine=null;           // 每个词元所属行号
+let activeLine=-1;          // 当前行
+let hlState=new Map();      // 行号 -> 高亮片段（用于局部重绘）
+
+let autoScroll=false;
+let autoChar=-1;            // v0.13 自动滚动的虚拟阅读位置（字符，含标点）
+let lastAutoTok=-1;
+let readPos=-1;             // v0.11 当前阅读位置（词元）：自动/跟读共用，切换模式时不清零
+let following=false;        // 语音跟读中
+let speed=2.5;              // 自动滚动速度（字/秒，0.2~4.0，4 = 满量程）
+
+/* ===== v0.15 翻页器（2.4G presenter，本质是个键盘） =====
+   开启「使用翻页器」后：绑定过的按键会被 preventDefault 吃掉，不再触发浏览器滚动/翻页，
+   只由提词器处理。每个键还能单独停用，并且可以随时「重绑」成任意按键。 */
+const PAD_KEY='v15.pad';
+const PAD_TAP ={ none:'不动作', seekFwd:'快进', seekBack:'快退', speedUp:'滚动加快', speedDown:'滚动变慢', togglePlay:'开始/暂停' };
+const PAD_HOLD={ none:'不动作', holdFast:'加速', holdSlow:'减速' };
+const PAD_DBL ={ none:'不动作', switchMode:'跟读/自动', togglePlay:'开始/暂停', seekFwd:'快进', seekBack:'快退' };
+let padOn=false;
+let padTapChars=12;         // 点按快进/快退的字数
+let padHoldFactor=2.5;      // 长按加速倍数（减速 = 1/倍数）
+let padVolStep=0.1;         // 音量键每次调速多少字/秒
+let padHoldMs=320;          // 按住多久算长按
+let padBindings=padDefaultBindings();
+let padFollowKind='online';   // 双击切到跟读时用哪种：online / offline
+let padDblMs=340;             // 双击判定窗口（毫秒）
+let padDblBind=null, padDblT=0, padTapTimer=null, padTapBind=null, padSwallowUp=false;
+let padHoldMode=0;          // 0 无 / 1 加速 / 2 减速
+let padDown=null;           // 当前按住的绑定（判定点按/长按/双击用）
+let padHoldTimer=null;
+let padCapturing=null;      // 正在重绑的按键 id
+function padDefaultBindings(){
+  return [
+    {id:'k1', name:'上一页键', code:'PageUp',          key:'PageUp',          kc:33,  tap:'seekFwd',   hold:'holdFast', enabled:true,  dbl:'none' },
+    {id:'k2', name:'下一页键', code:'PageDown',        key:'PageDown',        kc:34,  tap:'seekBack',  hold:'holdSlow', enabled:true,  dbl:'none' },
+    {id:'k3', name:'音量 +',   code:'AudioVolumeUp',   key:'AudioVolumeUp',   kc:175, tap:'speedUp',   hold:'none',     enabled:true,  dbl:'none' },
+    {id:'k4', name:'音量 -',   code:'AudioVolumeDown', key:'AudioVolumeDown', kc:174, tap:'speedDown', hold:'none',     enabled:true,  dbl:'none' },
+    {id:'k5', name:'其它键',   code:'',                key:'',                kc:0,   tap:'togglePlay', hold:'none',    enabled:false, dbl:'none' },
+    {id:'k6', name:'Tab 键',   code:'Tab',             key:'Tab',             kc:9,   tap:'togglePlay', hold:'none',    enabled:true,  dbl:'switchMode' }
+  ];
+}
+
+/* ===== v0.2 文字锚点：纵向=行位置，横向=词位置 ===== */
+let anchorRatio=0.35;       // 当前行中心所在高度（viewport 比例）
+let anchorXRatio=0.30;      // 高亮词中心所在横向位置（viewport 比例）
+let showAnchorLine=true;
+let scrollTarget=null;      // 纵向目标 scrollTop（每帧由预测位置重算）
+let lastAnchorTok=-1;       // 最近一次锚定的词元（换锚点/改窗口后重新定位）
+
+/* ===== v0.3 跟随引擎：语速预测 + 弹簧平滑 ===== */
+let mergeShort=true;        // 短句与下一句拼接成一行
+let predOn=true;            // 语速预测（预滚动）
+let vDrive=0;               // 驱动速度（词元/秒）：限幅变化的“匀速轮”
+let vApplied=0;            // 实际施加的速度（低通后）
+let goalF=-1;               // 低通后的目标位置（吸收识别抖动）
+let leadSec=0.65;           // 预滚动提前量（秒）
+let sens=0.30;              // 语速跟随灵敏度 0~1（0=最稳，1=最灵敏）
+let rateTok=4.6;            // 预测语速（词元/秒；中文≈字/秒）
+let rateSamples=0;          // 有效语速样本数
+let actualPos=-1;           // 实测阅读位置（词元索引，可小数）
+let predPos=-1;             // 预测阅读位置（允许超前于 actualPos）
+let lastAdvT=0;             // 最近一次位置推进的时刻（用于语速估计与停顿判断）
+let hPos=-1;                // 横向连续阅读位置（匀速自由轮 + 平滑纠偏，保证不顿挫）
+let hlOn=true;              // 朗读词语高亮开关
+let scrollV=0;              // 纵向速度（弹簧状态）
+let scrollPos=0;            // 浮点滚动位置（浏览器会把 scrollTop 取整，内部自留精度）
+let lineY=null;             // 每行文字中心 Y（文档坐标缓存）
+let lineYValid=false;
+let tokFirst=null, tokLast=null;   // 每行首/末词元下标
+let manualHoldUntil=0;      // 手动滚动后的接管截止时刻
+let rateHudT=0;
+
+/* ============ 工具 ============ */
+const isWordChar=ch=>/\p{L}|\p{N}/u.test(ch);
+function decodeXml(s){return s.replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,'&');}
+function removePunct(s){return s.replace(/[\p{P}\p{S}]/gu,'');}
+
+/* ============ docx 解析（零依赖） ============ */
+async function inflateRaw(bytes){
+  const ds=new DecompressionStream('deflate-raw');
+  const w=ds.writable.getWriter(); w.write(bytes); w.close();
+  const r=ds.readable.getReader();
+  const chunks=[]; let total=0;
+  while(true){const {done,value}=await r.read(); if(done)break; chunks.push(value); total+=value.length;}
+  const out=new Uint8Array(total); let off=0;
+  for(const c of chunks){out.set(c,off); off+=c.length;}
+  return out;
+}
+async function unzip(buffer){
+  const view=new DataView(buffer);
+  const bytes=new Uint8Array(buffer);
+  let eocd=-1;
+  for(let i=bytes.length-22;i>=0;i--){ if(view.getUint32(i,true)===0x06054b50){eocd=i;break;} }
+  if(eocd<0) throw new Error('不是有效的 zip/docx 文件');
+  const total=view.getUint16(eocd+10,true);
+  const cdOffset=view.getUint32(eocd+16,true);
+  const files=new Map(); let p=cdOffset;
+  for(let n=0;n<total;n++){
+    if(view.getUint32(p,true)!==0x02014b50) break;
+    const method=view.getUint16(p+10,true);
+    const compSize=view.getUint32(p+20,true);
+    const nameLen=view.getUint16(p+28,true);
+    const extraLen=view.getUint16(p+30,true);
+    const commentLen=view.getUint16(p+32,true);
+    const localOffset=view.getUint32(p+42,true);
+    const name=new TextDecoder('utf-8').decode(bytes.subarray(p+46,p+46+nameLen));
+    const lNameLen=view.getUint16(localOffset+26,true);
+    const lExtraLen=view.getUint16(localOffset+28,true);
+    const dataStart=localOffset+30+lNameLen+lExtraLen;
+    const comp=bytes.subarray(dataStart,dataStart+compSize);
+    let data;
+    if(method===0) data=comp;
+    else if(method===8) data=await inflateRaw(comp);
+    else throw new Error('不支持的压缩方式: '+method);
+    files.set(name,data);
+    p+=46+nameLen+extraLen+commentLen;
+  }
+  return files;
+}
+function docxText(xmlBytes){
+  const xml=new TextDecoder('utf-8').decode(xmlBytes);
+  // 1) 结构标记先转为换行/制表（此时内容仍为实体编码，不会被当作标签）
+  let s=xml
+    .replace(/<w:br\/>/g,'\n')
+    .replace(/<w:tab\/>/g,'\t')
+    .replace(/<\/w:p>/g,'\n');
+  // 2) 去掉所有剩余标签（含 <w:t>、</w:t>），保留其内部的实体编码文本
+  s=s.replace(/<[^>]+>/g,'');
+  // 3) 最后统一解码 XML 实体（此时 < > & 还原，但已不在标签剥离阶段）
+  s=decodeXml(s).replace(/\r/g,'');
+  s=s.replace(/\n{3,}/g,'\n\n');
+  return s.trim();
+}
+async function loadDocx(arrayBuffer){
+  const files=await unzip(arrayBuffer);
+  let xml=files.get('word/document.xml');
+  if(!xml){ for(const [k,v] of files){ if(k.endsWith('document.xml')){xml=v;break;} } }
+  if(!xml) throw new Error('未在 docx 中找到 document.xml');
+  return docxText(xml);
+}
+
+/* ============ 载入讲稿 ============ */
+async function loadFile(file){
+  try{
+    const buf=await file.arrayBuffer();
+    let text;
+    if(file.name.toLowerCase().endsWith('.txt')){
+      text=new TextDecoder('utf-8').decode(buf);
+    }else if(file.name.toLowerCase().endsWith('.docx')){
+      text=await loadDocx(buf);
+    }else{
+      alert('仅支持 .docx 与 .txt 文件'); return;
+    }
+    setScript(text);
+    setMode('已载入','');
+  }catch(e){
+    console.error(e);
+    alert('读取失败：'+e.message+'\n\n如果是 Word 文件，可尝试另存为 .docx 或用「粘贴文本」。');
+  }
+}
+function setScript(text){
+  fullText=text||'';
+  buildNorm(fullText);
+  buildTokens(fullText);
+  buildLines(fullText);
+  searchFrom=0; tokCursor=0; lastHLKey=-1; spokenText='';
+  scrollTarget=null; scrollV=0; lastAnchorTok=-1;
+  actualPos=-1; predPos=-1; lastAdvT=0; activeLine=-1; vDrive=0; vApplied=0; goalF=-1;
+  scriptWrap.scrollTop=0;
+  script.classList.remove('focus');
+  updateProgress();
+}
+/* ===== v0.14 默认演示稿：工作区里的「古诗词三首说课稿.docx」 =====
+   启动时自动载入，省得每次都要点「打开文档」。
+   优先从同目录 fetch（用「启动提词器(推荐-免反复授权).cmd」打开时拿到的是最新文件）；
+   file:// 下浏览器禁止 fetch 本地文件，就退回到内置的一份副本。 */
+const DEFAULT_DOC='古诗词三首说课稿.docx';
+function b64ToBytes(b64){
+  const bin=atob(b64);
+  const out=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) out[i]=bin.charCodeAt(i);
+  return out;
+}
+async function loadDefaultDoc(){
+  if(scriptTokens.length) return;                 // 已有讲稿（用户拖入/粘贴过）就不覆盖
+  let text='';
+  try{
+    const r=await fetch(encodeURIComponent(DEFAULT_DOC),{cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    text=await loadDocx(await r.arrayBuffer());
+  }catch(_){
+    try{ text=await loadDocx(b64ToBytes(DEFAULT_DOC_B64).buffer); }catch(__){ text=''; }
+  }
+  if(!text || !text.trim()) return;
+  setScript(text);
+  setMode('已载入演示稿','');
+  setStatus('待机','');
+  toast('已自动载入演示稿「'+DEFAULT_DOC+'」：点「▶ 开始」自动滚动，点「🎤 在线跟读」跟着读',6000);
+}
+/* 内置副本（与 古诗词三首说课稿.docx 同一份文件，仅在 file:// 取不到磁盘文件时使用） */
+const DEFAULT_DOC_B64='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';
+
+function buildNorm(text){
+  normFull=''; normMap=[];
+  for(let i=0;i<text.length;i++){
+    if(isWordChar(text[i])){ normFull+=text[i].toLowerCase(); normMap.push(i); }
+  }
+}
+/* 词元切分：中日韩文字逐字，拉丁字母/数字连成词 */
+const CJK=/[\u3400-\u9fff\uf900-\ufaff]/;
+function buildTokens(text){
+  scriptTokens=[];
+  let i=0;
+  while(i<text.length){
+    const ch=text[i];
+    if(CJK.test(ch)){
+      scriptTokens.push({s:i,e:i+1,t:ch.toLowerCase()}); i++;
+    }else if(/[A-Za-z0-9]/.test(ch)){
+      let j=i+1;
+      while(j<text.length && /[A-Za-z0-9']/.test(text[j])) j++;
+      scriptTokens.push({s:i,e:j,t:text.slice(i,j).toLowerCase()}); i=j;
+    }else i++;
+  }
+}
+/* 把任意识别文本切成同样的词元序列（只取规整后的词） */
+function tokenizeStr(str){
+  const out=[]; let i=0;
+  while(i<str.length){
+    const ch=str[i];
+    if(CJK.test(ch)){ out.push(ch.toLowerCase()); i++; }
+    else if(/[A-Za-z0-9]/.test(ch)){
+      let j=i+1;
+      while(j<str.length && /[A-Za-z0-9']/.test(str[j])) j++;
+      out.push(str.slice(i,j).toLowerCase()); i=j;
+    }else i++;
+  }
+  return out;
+}
+/* ============ 逐行排版：每句话独占一行 ============ */
+const SENT_END=/[。！？…!?;；]/;
+const SENT_CLOSE=/["”』」）)》’'\]]/;
+function splitSentences(text){
+  const out=[]; let s=0,i=0;
+  while(i<text.length){
+    const ch=text[i];
+    if(ch==='\n'){ if(i>s) out.push([s,i]); s=i+1; i++; continue; }
+    if(SENT_END.test(ch)){
+      let j=i+1;
+      while(j<text.length && (SENT_END.test(text[j])||SENT_CLOSE.test(text[j]))) j++;
+      out.push([s,j]); s=j;
+      while(s<text.length && text[s]==='\n') s++;
+      i=s; continue;
+    }
+    i++;
+  }
+  if(s<text.length) out.push([s,text.length]);
+  return out.filter(([a,b])=>text.slice(a,b).trim().length>0);
+}
+function buildLines(text){
+  hlState=new Map(); activeLine=-1;
+  lines=[]; script.textContent='';
+  tokFirst=null; tokLast=null; lineYValid=false;
+  const sents=splitSentences(text);
+  if(!sents.length) return;
+
+  /* 1) 探针：用真实字体/字号量出每句的自然宽度 */
+  const tmpEl=document.createElement('div'); tmpEl.className='ln';
+  const tmpIn=document.createElement('span'); tmpIn.className='ln-in';
+  tmpEl.appendChild(tmpIn); script.appendChild(tmpEl);
+  const probes=sents.map(([a,b])=>{
+    const sp=document.createElement('span'); sp.className='seg';
+    sp.textContent=text.slice(a,b); tmpIn.appendChild(sp); return sp;
+  });
+  const widths=probes.map(el=>el.getBoundingClientRect().width);
+  script.removeChild(tmpEl);
+  /* 每句的词元数：用于把“很短的行”补长，让每行的朗读时长接近 ——
+     否则 5 个字的行和 30 个字的行滚起来速度差好几倍，看着就像“忽快忽慢”。 */
+  const tokCnt=sents.map(([a,b])=>tokenizeStr(text.slice(a,b)).length||1);
+
+  const avail=Math.max(120, scriptWrap.clientWidth||stage.clientWidth||window.innerWidth);
+  const fs=parseFloat(getComputedStyle(script).fontSize)||48;
+  const gapW=fs*0.26;                    // 与 CSS .seg+.seg 的 margin-left 保持一致
+  const LIMIT=avail*0.97;                // 拼接后不允许超出一行（按词数补长的行允许超宽，靠横滚解决）
+  const SHORT=avail*0.58;                // 只有“短句”才去吞并下一句
+  const TGT_TOK=20;                      // 一行目标词数：不足就继续吞并下一句
+  const MAX_TOK=34;                      // 一行最多词数，超过就不再拼（避免一行太长读不完）
+
+  /* 2) 分组：短句与后面的句子拼成同一行（段落之间不拼） */
+  const groups=[]; let cur=null;
+  for(let i=0;i<sents.length;i++){
+    const [a,b]=sents[i], w=widths[i]||0, tc=tokCnt[i];
+    const gapPrev=(i>0)?text.slice(sents[i-1][1],a):'';
+    const breakPara=gapPrev.indexOf('\n')>=0;
+    let join=false;
+    if(cur && mergeShort && !breakPara && cur.n<3 && cur.t+tc<=MAX_TOK){
+      /* 两种合并理由：① 这一行还太短（词数不够，滚起来会明显偏慢）
+                        ② 宽度还富余，且拼上不会超出屏幕 */
+      if(cur.t<TGT_TOK) join=true;
+      else if(cur.w<=SHORT && (cur.w+gapW+w)<=LIMIT) join=true;
+    }
+    if(join){
+      cur.e=b; cur.w=cur.w+gapW+w; cur.n++; cur.t+=tc; cur.segs.push([a,b]);
+    }else{
+      if(cur) groups.push(cur);
+      cur={s:a,e:b,w:w,n:1,t:tc,segs:[[a,b]]};
+    }
+  }
+  if(cur) groups.push(cur);
+
+  /* 3) 建 DOM：每行 = .ln > .ln-in > 若干 .seg */
+  const frag=document.createDocumentFragment();
+  groups.forEach(g=>{
+    const el=document.createElement('div'); el.className='ln';
+    const inner=document.createElement('span'); inner.className='ln-in';
+    const segs=g.segs.map(([a,b])=>{
+      const sp=document.createElement('span'); sp.className='seg';
+      sp.textContent=fullText.slice(a,b); inner.appendChild(sp);
+      return {a,b,el:sp};
+    });
+    el.appendChild(inner); frag.appendChild(el);
+    lines.push({s:g.s,e:g.e,el,inner,segs,tx:0,txT:0,txV:0,pending:false});
+  });
+  script.appendChild(frag);
+
+  /* 4) 词元 → 行号；记录每行首/末词元（预滚要按行内进度插值） */
+  tokLine=new Int32Array(scriptTokens.length);
+  tokFirst=new Int32Array(lines.length).fill(-1);
+  tokLast=new Int32Array(lines.length).fill(-1);
+  let li=0;
+  for(let k=0;k<scriptTokens.length;k++){
+    const pos=scriptTokens[k].s;
+    while(li<lines.length-1 && pos>=lines[li].e) li++;
+    tokLine[k]=li;
+    if(tokFirst[li]<0) tokFirst[li]=k;
+    tokLast[li]=k;
+  }
+  lineYValid=false;
+  layoutLinesX();                             // 每行首字先落到横向锚点
+}
+/* 改了「短句拼接」开关后重建行 */
+function rebuildLines(){
+  const keep=lastAnchorTok;
+  buildLines(fullText);
+  applyAnchor(keep>=0?keep:-1);
+  if(keep<0){ clearHl(); }
+}
+
+/* ============ 锚点与滚动（v0.2：每句一行 + 行内横滚） ============ */
+function anchorPx(){ return Math.round((scriptWrap.clientHeight||stage.clientHeight||1)*anchorRatio); }
+function anchorXpx(){ return Math.round((scriptWrap.clientWidth||stage.clientWidth||1)*anchorXRatio); }
+
+/* 上下留白：保证第一行与最后一行都能到达基准线 */
+function applyAnchor(keepTok){
+  const H=scriptWrap.clientHeight||stage.clientHeight||1;
+  const ay=anchorPx();
+  script.style.paddingTop=ay+'px';
+  script.style.paddingBottom=Math.max(0,H-ay)+'px';
+  const rl=document.getElementById('readLine');
+  rl.style.top=ay+'px';
+  rl.classList.toggle('hide',!showAnchorLine);
+  const tk=document.getElementById('anchorTick');
+  tk.style.left=anchorXpx()+'px';
+  tk.style.top=ay+'px';
+  const fs=parseFloat(getComputedStyle(script).fontSize)||48;
+  tk.style.height=Math.round(fs*1.9)+'px';
+  tk.classList.toggle('hide',!showAnchorLine);
+  document.getElementById('anchorYVal').textContent=Math.round(anchorRatio*100)+'%';
+  document.getElementById('anchorXVal').textContent=Math.round(anchorXRatio*100)+'%';
+  /* 字号/锚点变化后，所有行的位移都失效，统一归零再由当前词重算 */
+  lines.forEach(ln=>{ ln.tx=0; ln.txT=0; ln.txV=0; ln.pending=false; ln.cxs=null; ln.inner.style.transform=''; });
+  lineYValid=false;
+  scrollV=0;
+  layoutLinesX();                             // 所有行先对齐横向锚点
+  const t=(keepTok===undefined)?lastAnchorTok:keepTok;
+  if(t>=0) focusToken(t,true);                // 换锚点后立刻归位
+}
+function setScrollTarget(t,immediate){
+  const max=Math.max(0,scriptWrap.scrollHeight-scriptWrap.clientHeight);
+  scrollTarget=Math.max(0,Math.min(max,t));
+  if(immediate){ scrollPos=scrollTarget; scriptWrap.scrollTop=scrollTarget; scrollV=0; updateProgress(); }
+}
+/* 每行文字中心在“文档坐标”里的 Y（缓存，改字号/锚点/窗口时失效） */
+function ensureLineY(){
+  if(lineYValid && lineY && lineY.length===lines.length) return;
+  const cr=scriptWrap.getBoundingClientRect();
+  const top=scriptWrap.scrollTop;
+  lineY=new Float64Array(lines.length);
+  for(let i=0;i<lines.length;i++){
+    const r=lines[i].el.getBoundingClientRect();
+    lineY[i]=r.top-cr.top+top+r.height/2;
+  }
+  lineYValid=true;
+}
+/* 由阅读位置（词元，可小数）算出纵向目标 scrollTop：把该行文字中心送到基准线 */
+function targetForPos(pos){
+  ensureLineY();
+  const N=scriptTokens.length; if(!N||!lines.length) return 0;
+  const p=Math.max(0,Math.min(N-1,pos));
+  const li=lineOfToken(Math.min(N-1,Math.floor(p)));
+  const y0=lineY[li]||0;
+  if(li>=lines.length-1) return y0-anchorPx();
+  const a=(tokFirst&&tokFirst[li]>=0)?tokFirst[li]:-1;
+  const b=(tokLast&&tokLast[li]>=0)?tokLast[li]:-1;
+  if(a<0||b<0) return y0-anchorPx();
+  /* 关键：行内按“词元进度”线性推进到下一行，让纵向像横向一样连续匀速，
+     而不是“整行阶梯 + 弹簧追赶”（这是换行一顿一顿的根因）。 */
+  const span=Math.max(1,b-a+1);
+  const prog=Math.max(0,Math.min(1,(p-a)/span));
+  const y1=lineY[li+1];
+  if(y1==null) return y0-anchorPx();
+  return y0+(y1-y0)*prog-anchorPx();
+}
+/* 立即归位（改字号/锚点、复位、跳读时用） */
+function snapToPos(pos){
+  const max=Math.max(0,scriptWrap.scrollHeight-scriptWrap.clientHeight);
+  scrollTarget=Math.max(0,Math.min(max,targetForPos(pos)));
+  scrollV=0; scrollPos=scrollTarget;
+  scriptWrap.scrollTop=scrollTarget;
+  updateProgress();
+}
+
+/* —— 高亮：直接在行内包 <span>，随行一起平移，无需叠加层 —— */
+function paintLine(li,spans){
+  const ln=lines[li]; if(!ln||!ln.segs) return;
+  const list=(spans||[]).slice().sort((x,y)=>x.a-y.a);
+  ln.segs.forEach(sg=>{
+    const txt=fullText.slice(sg.a,sg.b);
+    sg.el.textContent='';
+    let pos=0;
+    list.forEach(sp=>{
+      if(sp.b<=sg.a||sp.a>=sg.b) return;        // 该片段落在别的句子里
+      const a=Math.max(pos,sp.a-sg.a), b=Math.min(txt.length,sp.b-sg.a);
+      if(b<=a) return;
+      if(a>pos) sg.el.appendChild(document.createTextNode(txt.slice(pos,a)));
+      const el=document.createElement('span');
+      el.className=sp.cls; el.textContent=txt.slice(a,b);
+      sg.el.appendChild(el); pos=b;
+    });
+    if(pos<txt.length) sg.el.appendChild(document.createTextNode(txt.slice(pos)));
+  });
+  ln._tn=null;                       // DOM 重建后字符索引缓存失效
+}
+function clearHl(){
+  const old=[...hlState.keys()];
+  hlState=new Map();
+  old.forEach(li=>paintLine(li,null));
+  script.classList.remove('focus');
+}
+function lineOfToken(k){ return (tokLine&&k>=0&&k<tokLine.length)?tokLine[k]:0; }
+function highlightWord(idx){
+  const tok=scriptTokens[idx];
+  const map=new Map();
+  if(tok){
+    const li=lineOfToken(idx);
+    const arr0=[];
+    const pv=scriptTokens[idx-1];
+    if(pv && lineOfToken(idx-1)===li) arr0.push({a:pv.s,b:pv.e,cls:'hlw-prev'});   // 隐形容器：横滚插值用
+    arr0.push({a:tok.s,b:tok.e,cls:'hlw'});
+    map.set(li,arr0);
+    const nx=scriptTokens[idx+1];
+    if(nx){
+      const li2=lineOfToken(idx+1);
+      const arr=map.get(li2)||[];
+      arr.push({a:nx.s,b:nx.e,cls:'hlw-next'});
+      map.set(li2,arr);
+    }
+  }
+  const touched=new Set([...hlState.keys(),...map.keys()]);
+  hlState=map;
+  touched.forEach(li=>paintLine(li,map.get(li)));
+}
+
+/* —— 行内字符坐标表：一次量好每个字的中心 x，之后每帧只做查表插值 ——
+   逐帧调 Range 会有 0 宽字符（空格/标点）导致测量失败 → 目标不更新 → 画面一顿一顿。 */
+function collectTextNodes(root){
+  const nodes=[]; const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,null);
+  let n; while((n=w.nextNode())){ if(n.data.length) nodes.push(n); }
+  return nodes;
+}
+function buildLineX(ln){
+  if(ln.cxs) return ln.cxs;
+  const text=fullText.slice(ln.s,ln.e);
+  const n=text.length;
+  const arr=new Float32Array(n||1);
+  if(!n){ ln.cxs=arr; return arr; }
+  const nodes=collectTextNodes(ln.inner);
+  const ir=ln.inner.getBoundingClientRect();
+  let ni=0, acc=0, last=0;
+  for(let i=0;i<n;i++){
+    while(ni<nodes.length-1 && i>=acc+nodes[ni].data.length){ acc+=nodes[ni].data.length; ni++; }
+    const nd=nodes[ni];
+    let x=null;
+    if(nd && i-acc>=0 && i-acc<nd.data.length){
+      const r=document.createRange();
+      r.setStart(nd,i-acc); r.setEnd(nd,i-acc+1);
+      const rr=r.getBoundingClientRect();
+      if(rr && (rr.width>0.01 || rr.height>0.01)) x=(rr.left+rr.right)/2-ir.left;
+    }
+    arr[i]=(x==null)?last:x;      // 0 宽字符（空格等）沿用上一个字的位置
+    last=arr[i];
+  }
+  /* 字宽归一：中文标点只有汉字一半宽，逐字插值会让速度在标点处“掉一下”。
+     把偏离中位数 35% 以上的字距替换为中位字距，横向速度就恒定了。 */
+  if(n>2){
+    const ws=[];
+    for(let i=1;i<n;i++){ const w=arr[i]-arr[i-1]; if(w>0.5) ws.push(w); }
+    if(ws.length>2){
+      ws.sort((a,b)=>a-b);
+      const med=ws[Math.floor(ws.length/2)];
+      let acc=arr[0];
+      for(let i=1;i<n;i++){
+        let w=arr[i]-arr[i-1];
+        if(!(w>0.5) || Math.abs(w-med)>med*0.22) w=med;
+        acc+=w; arr[i]=acc;
+      }
+    }
+  }
+  ln.cxs=arr;
+  return arr;
+}
+function xAt(ln,c){
+  const arr=buildLineX(ln), n=arr.length;
+  if(!n) return null;
+  const c2=Math.max(0,Math.min(n-1,c));
+  const i0=Math.floor(c2), i1=Math.min(n-1,i0+1), f=c2-i0;
+  return arr[i0]+(arr[i1]-arr[i0])*f;
+}
+/* —— 横向：把预测位置 hPos 精确映射为行内 x，再整行平移到锚点 ——
+   旧实现只在“当前词/下一个词”之间插值，而预测位置本就超前 2~4 个词，
+   超出范围时位置会错位再弹回 —— 这才是“左右一顿一顿”的真正原因。 */
+function anchorWordX(li,immediate){
+  const ln=lines[li]; if(!ln||!ln.segs) return;
+  const a=(tokFirst&&tokFirst[li]>=0)?tokFirst[li]:-1;
+  const b=(tokLast&&tokLast[li]>=0)?tokLast[li]:-1;
+  if(a<0||b<0) return;
+  const len=ln.e-ln.s;
+  if(len<=0) return;
+  const hp=(hPos<0)?(lastHLKey>=0?lastHLKey:a):hPos;
+  /* 允许越过行末最多 5 个字：句子读完后文字继续匀速滑出，
+     而不是“到行尾就卡住等人来换行”（那也是一顿）。 */
+  const p=Math.max(a,Math.min(b+0.999,(hp<0?a:hp)));
+  const k0=Math.max(a,Math.min(b,Math.floor(p)));
+  const f=Math.max(0,p-k0);
+  const t0=scriptTokens[k0]; if(!t0) return;
+  const ci0=Math.max(0,Math.min(len-1,t0.s-ln.s));
+  let ci1;
+  if(k0<b){ const t1=scriptTokens[k0+1]; ci1=Math.max(ci0+1,t1.s-ln.s); }
+  else { ci1=Math.max(ci0+1,t0.e-ln.s); }
+  let cx=xAt(ln,ci0+(ci1-ci0)*Math.min(1,f));
+  if(cx==null) return;
+  if(f>1){                                       // 行末外推：按最后一字宽度继续左移
+    const arr=buildLineX(ln);
+    const w=arr.length>1?Math.abs(arr[arr.length-1]-arr[arr.length-2]):(parseFloat(getComputedStyle(script).fontSize)||48);
+    cx+=w*(f-1);
+  }
+  ln.txT=anchorXpx()-cx;
+  ln.pending=true;
+  if(immediate){ ln.tx=ln.txT; ln.pending=false; ln.inner.style.transform='translateX('+ln.tx.toFixed(1)+'px)'; }
+}
+/* 每行首字的位置（相对行内容左边界） */
+function xOfFirstChar(ln){
+  return xAt(ln,0);
+}
+/* 排版/换锚点后：所有行都先对齐到横向锚点（未读的句子也从锚点开始，而不是贴着左边） */
+function layoutLinesX(){
+  const ax=anchorXpx();
+  for(let i=0;i<lines.length;i++){
+    const ln=lines[i];
+    const x0=xOfFirstChar(ln);
+    if(x0==null) continue;
+    ln.tx=ln.txT=ax-x0;
+    ln.pending=false;
+    ln.inner.style.transform='translateX('+ln.tx.toFixed(1)+'px)';
+  }
+}
+/* 回到开头（重新跟读/复位时用） */
+function resetPlayback(){
+  scrollTarget=null; scrollV=0; lastAnchorTok=-1; activeLine=-1;
+  actualPos=-1; predPos=-1; hPos=-1; lastAdvT=0; manualHoldUntil=0; vDrive=0; vApplied=0; goalF=-1;
+  autoChar=-1; lastAutoTok=-1; readPos=-1;
+  lines.forEach(ln=>{ ln.tx=0; ln.txT=0; ln.txV=0; ln.pending=false; ln.inner.style.transform=''; ln.el.classList.remove('on'); });
+  scrollPos=0; scriptWrap.scrollTop=0;
+  clearHl(); script.classList.remove('focus');
+  layoutLinesX();                       // 复位后每行首字仍回到横向锚点（不是贴左边）
+}
+/* —— 一次调用：高亮 + 定位（纵向交给弹簧逐帧追赶） —— */
+function focusToken(idx,immediate){
+  const tok=scriptTokens[idx]; if(!tok) return;
+  lastAnchorTok=idx; lastHLKey=idx; readPos=idx;
+  highlightWord(idx);
+  const li=lineOfToken(idx);
+  script.classList.add('focus');
+  if(li!==activeLine){
+    const prev=lines[activeLine];
+    if(prev) prev.el.classList.remove('on');
+    activeLine=li;
+    const cur=lines[li];
+    if(cur) cur.el.classList.add('on');
+  }
+  if(immediate){ hPos=idx; snapToPos(idx); anchorWordX(li,true); }
+  else anchorWordX(li,false);
+  updateProgress();
+}
+
+/* ============ v0.3 语速预测 ============ */
+/* 预滚量（词元）：语速越快，提前得越多，但不超过 14 个词 */
+function leadTokens(){ return predOn? Math.max(0,Math.min(14, rateTok*leadSec)) : 0; }
+/* 用两次“位置推进”的间隔估算语速（时间常数 1.6s 的指数平滑，抗抖） */
+function updateRate(tok){
+  const now=performance.now();
+  if(lastAdvT>0 && actualPos>=0 && tok>actualPos){
+    const dt=(now-lastAdvT)/1000;
+    if(dt>0.06 && dt<5){
+      const inst=(tok-actualPos)/dt;
+      if(inst>=0.6 && inst<=16){                 // 过滤不可能的跳变（跳读/误匹配）
+        rateTok+=(inst-rateTok)*(1-Math.exp(-dt/sensParams().tauRate));
+        rateSamples++;
+      }
+    }
+    lastAdvT=now;
+  }else if(!lastAdvT){
+    lastAdvT=now;
+  }
+  if(tok>actualPos) actualPos=tok;
+  if(predPos<0){ predPos=actualPos; goalF=-1; }
+  if(!predOn) predPos=Math.min(predPos,actualPos);   // 关闭预测：立刻收回超前量
+}
+/* 预测位置：目标是“实测位置 + 提前量”，落后就加速追平、超前就缓慢收回。
+   这样文字会比朗读进度提前 leadTokens 个字，且停顿时不乱跑（目标不动）。 */
+/* 驱动速度：跟着 rateTok 走，但“每秒最多变化 12%”——
+   这样识别结果的抖动不会变成画面速度的抖动，看到的就是一条匀速的读稿线。 */
+/* 灵敏度 → 平滑参数：
+   sens=0   ：语速变化要 3 秒以上才反映到画面（最稳，适合长段落）
+   sens=1   ：0.5 秒就跟上（适合语速忽快忽慢的即兴讲话） */
+function sensParams(){
+  const k=Math.max(0,Math.min(1,sens));
+  return {
+    tauRate: 3.0-(2.5*k),      // 语速估计的低通
+    tauSpeed:1.6-(1.2*k),      // 施加速度的低通
+    gain:    0.15+1.05*k       // 偏差纠偏增益
+  };
+}
+function stepDriveSpeed(dt){
+  const target=Math.max(0.8, Math.min(12, rateTok||4.6));
+  if(!vDrive){ vDrive=target; return; }
+  const p=sensParams();
+  /* 速度变化率限制：低灵敏度时每秒最多变 6%，高灵敏度 30% */
+  const rateLim=(0.06+0.24*sens)*dt;
+  const lim=Math.max(0.02, Math.abs(vDrive)*rateLim);
+  const d=target-vDrive;
+  vDrive+=Math.max(-lim, Math.min(lim, d));
+}
+function advancePrediction(now,dt){
+  if(actualPos<0){ predPos=-1; goalF=-1; return; }
+  const N=scriptTokens.length; if(!N) return;
+  if(predPos<0){ predPos=actualPos; goalF=-1; }
+  stepDriveSpeed(dt);
+
+  /* 停顿（超过 1.2s 没有新的识别位置）：驱动速度归零，画面原地停住
+     （不再把 predPos 拉回实际位置 —— 那样会让画面轻微倒退一下） */
+  const idle=lastAdvT? (now-lastAdvT)/1000 : 0;
+  const drive=(idle>1.2)?0:vDrive;
+
+  const goal=Math.min(N-1, actualPos+leadTokens());
+  /* 注意：这里不能再对目标做低通。低通会带来 v·τ 的滞后（τ=0.8s、4字/秒 ≈ 3 个字），
+     刚好把预滚量吃掉，等于没有预滚。抖动交给“速度低通”去吸收即可。 */
+  goalF=goal;
+
+  /* ① 速度 = 基准速度 + 比例纠偏（PI 式）。
+     旧版用“位置硬上限”约束超前量，predPos 每隔几个字就撞墙停一帧，
+     这才造成“走一下、停一下”。现在改为直接控速：速度连续、无撞墙、无回退。 */
+  const err=goalF-predPos;
+  let v=drive;
+  const sp=sensParams();
+  if(drive>0) v+=err*sp.gain;                    // 纠偏增益随“语速跟随”灵敏度变化
+  v=Math.max(0, Math.min(2*Math.max(vDrive,0.5), v));   // 速度限幅：0 ~ 2 倍基准
+
+  /* 速度再做一次低通（τ=0.3s）：纠偏不再直接冲击画面，观感是“稳速 + 缓慢贴合” */
+  if(drive<=0) vApplied=0;
+  else{
+    if(!vApplied) vApplied=v;
+    vApplied+=(v-vApplied)*(1-Math.exp(-dt/sp.tauSpeed));
+  }
+  predPos+=vApplied*dt;
+
+  /* 兜底钳制：落后/超前过多时用“软拉”而不是硬跳，避免画面出现一帧大位移 */
+  const lo=Math.max(0, actualPos-1.0);
+  if(predPos<lo) predPos+=(lo-predPos)*0.35;
+  const hi=Math.min(N-1, Math.max(goalF,actualPos)+3.0);
+  if(predPos>hi) predPos+=(hi-predPos)*0.35;
+}
+function updateRateHud(){
+  const el=document.getElementById('rateInfo'); if(!el) return;
+  if(rateSamples<2){ el.textContent='语速：估算中…（连续朗读几秒后自动适应）'; return; }
+  el.textContent='语速 ≈ '+rateTok.toFixed(1)+' 字/秒 · 约 '+Math.round(rateTok*60)+' 字/分 · 预滚 '+(rateTok*leadSec).toFixed(1)+' 字';
+}
+function scrollToChar(i){ const k=tokenIndexAtChar(i); focusToken(k>=0?k:0); }
+function updateProgress(){
+  let p;
+  if(lastAnchorTok>=0 && scriptTokens.length){ p=(lastAnchorTok+1)/scriptTokens.length*100; }
+  else { const max=scriptWrap.scrollHeight-scriptWrap.clientHeight; p=max>0?scriptWrap.scrollTop/max*100:0; }
+  document.getElementById('progVal').textContent='进度 '+Math.max(0,Math.min(100,Math.round(p)))+'%';
+}
+
+/* ============ 语音同步匹配（词元级） ============ */
+function tokenIndexAtChar(ci){
+  let lo=0,hi=scriptTokens.length-1,ans=-1;
+  while(lo<=hi){ const mid=(lo+hi)>>1; const t=scriptTokens[mid]; if(t.s<=ci){ans=mid;lo=mid+1;} else hi=mid-1; }
+  return ans;
+}
+/* 在游标附近按“由长到短”的词数尝试对齐，抗个别错词 */
+/* 词元序列是否完全相等 */
+function matchAt(s,seq){
+  for(let k=0;k<seq.length;k++){
+    const tk=scriptTokens[s+k];
+    if(!tk||tk.t!==seq[k]) return false;
+  }
+  return true;
+}
+/* 长上下文对齐：长锚点优先，短锚点只许紧邻推进，杜绝“同字跨句乱跳” */
+function findTokenMatch(tToks){
+  const N=scriptTokens.length, L=tToks.length;
+  if(!N||!L) return null;
+
+  // 1) 长锚点（6~30 词）局部精确匹配
+  for(let m=Math.min(30,L);m>=6;m--){
+    const seq=tToks.slice(L-m);
+    const from=Math.max(0,tokCursor-m-4);
+    const to=Math.min(N-1,tokCursor+40);
+    let behind=-1;
+    for(let s=from;s+m-1<=to;s++){
+      if(matchAt(s,seq)){
+        if(s+m>tokCursor) return {s,m};   // 有前进，立即采用
+        behind=s;                          // 否则记录最靠后的匹配
+      }
+    }
+    if(behind>=0) return {s:behind,m};
+  }
+
+  // 2) 中锚点（3~5 词）局部精确匹配
+  for(let m=Math.min(5,L);m>=3;m--){
+    const seq=tToks.slice(L-m);
+    const from=Math.max(0,tokCursor-m-4);
+    const to=Math.min(N-1,tokCursor+40);
+    for(let s=from;s+m-1<=to;s++){ if(matchAt(s,seq)) return {s,m}; }
+  }
+
+  // 3) 单/双字：只允许紧邻前进（最多 +3 词），绝不跨句跳转
+  for(let m=Math.min(2,L);m>=1;m--){
+    const seq=tToks.slice(L-m);
+    for(let s=Math.max(0,tokCursor-1);s<=Math.min(N-1,tokCursor+3);s++){
+      if(matchAt(s,seq)) return {s,m};
+    }
+  }
+
+  // 4) 全局重同步：仅当连续 ≥10 词强匹配时才允许大跳（真正跳读/漏读）
+  if(L>=10){
+    for(let m=Math.min(24,L);m>=10;m--){
+      const seq=tToks.slice(L-m);
+      for(let s=Math.max(0,tokCursor);s+m-1<N;s++){ if(matchAt(s,seq)) return {s,m}; }
+      for(let s=0;s+m-1<N;s++){ if(matchAt(s,seq)) return {s,m}; }
+    }
+  }
+  return null;
+}
+/* 精确词匹配失败时，退回字符级模糊匹配 */
+function charFallback(transcript){
+  const t=removePunct((transcript||'').toLowerCase());
+  if(!t||!normFull) return null;
+  if(t.length<4) return null;               // 太短不做全局兜底，避免同字误跳
+  const anchor=t.slice(-10);
+  let idx=normFull.indexOf(anchor,Math.max(0,searchFrom-80));
+  if(idx<0) idx=normFull.indexOf(anchor);
+  if(idx<0) return null;
+  searchFrom=idx+anchor.length;
+  return normMap[idx];
+}
+function syncToTranscript(transcript){
+  const raw=(transcript||'');
+  if(!raw.trim()) return;
+  if(padHoldMode) return;              // v0.15：长按快进/减速期间，位置由翻页器接管，别被识别拽回去
+  const tToks=tokenizeStr(raw);
+  let curTok=-1, matchedM=0;
+  if(tToks.length){
+    const best=findTokenMatch(tToks);
+    if(best){ curTok=best.s+best.m-1; matchedM=best.m; tokCursor=Math.max(tokCursor,best.s+best.m); }
+  }
+  if(curTok<0){
+    const ci=charFallback(raw);
+    if(ci!=null){
+      const k=tokenIndexAtChar(ci);
+      if(k>=0){ curTok=k; tokCursor=Math.max(tokCursor,k+1); }
+    }
+  }
+  if(curTok<0) return;
+  document.getElementById('lastText').textContent='识别：'+raw.slice(-60);
+  // 只允许前进；只有强匹配（≥10 词）才接受回退，避免“同字误跳”来回乱跳
+  if(curTok<lastHLKey-1 && matchedM<10) return;
+  updateRate(curTok);                      // 用实测推进估算语速
+  if(curTok===lastHLKey) return;           // 同一个词不重复重排
+  lastHLKey=curTok;
+  const tok=scriptTokens[curTok];
+  if(!tok) return;
+  focusToken(curTok);
+}
+/* rAF 节流：每次只处理最新一帧的识别结果，避免高频识别导致的重排 */
+function enqueueTranscript(txt){
+  pendingT=txt;
+  if(!rafScheduled){ rafScheduled=true; requestAnimationFrame(processPending); }
+}
+function processPending(){
+  rafScheduled=false;
+  if(pendingT!=null){ const t=pendingT; pendingT=null; syncToTranscript(t); }
+}
+
+/* ============ 在线语音识别（Web Speech API） ============ */
+let recg=null,recRunning=false,recRestartTimer=null,recRestartDelay=600;
+let speechStarting=false,netErrCount=0;
+let restartCount=0, gotAnyResult=false;
+
+/* ============ v0.7 麦克风策略：整场只申请一次，中途绝不再要权限 ============
+   v0.6「频繁弹麦克风请求」的实测归因（无头浏览器 20s 仿真，见版本说明）：
+     ① 识别会话被浏览器约每 1.2s 结束一次 → recg.start() 20s 内 11 次（≈33 次/分钟）；
+     ② onresult 里把 restartCount 清零 → 「最多重启 40 次」的熔断形同虚设，重启永不停止；
+     ③ onend 重启前、audio-capture、看门狗三处都调 ensureMic(true)，force 会绕过
+        「已授权就复用」的缓存直接 getUserMedia；file:// 打开时浏览器不持久化麦克风
+        授权 → 每调一次都可能弹一次权限窗，再叠加 ①② 就是"朗读中疯狂弹窗"。
+   现在：
+     · 在线识别全程不持有 getUserMedia 流（不再和识别引擎抢同一个麦克风，audio-capture 大幅减少）；
+     · 授权探测整场最多一次，拿到授权立刻释放音轨，并用 grantedOnce 永久短路；
+     · 重启只重启识别，绝不碰设备；指数退避 + 60 秒窗口熔断，重启次数有硬上限；
+     · 权限失效（not-allowed）不再自动重授权，改为停下等用户点一次 —— 一次点击最多一次弹窗。 */
+const MIC_FLAG='v05.micOk';
+let micGrantedOnce=false;      // 本页面会话内已成功拿到麦克风授权
+let micLastProbeT=0;
+let micStream=null;            // 只有离线识别(vosk)才长期持有音轨
+let micReleaseTimer=null;
+/* v0.8 事件日志：出问题时把最近 12 条贴出来就能判断是"我们主动要权限"还是"识别引擎自己要的" */
+const micLog=[];
+function mlog(s){
+  micLog.push((performance.now()/1000).toFixed(1)+'s  '+s);
+  if(micLog.length>40) micLog.shift();
+}
+
+function micTracksLive(){
+  return !!(micStream && micStream.getAudioTracks().some(t=>t.readyState==='live'));
+}
+async function micState(){
+  try{
+    if(navigator.permissions && navigator.permissions.query){
+      const st=await navigator.permissions.query({name:'microphone'});
+      return st.state||'unknown';
+    }
+  }catch(_){}
+  return 'unknown';
+}
+/* 整场只在点「语音跟读」时调用一次，force 仅用于"曾经授权过但识别报 not-allowed"的一次性兜底 */
+async function ensureMicOnce(force){
+  if(micGrantedOnce && !force) return {ok:true, reused:true};
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return {ok:true, noApi:true};
+  const st=await micState();
+  if(st==='denied' && !force) return {ok:false, name:'NotAllowedError'};
+  /* 已经明确授权：完全不碰 getUserMedia，把麦克风直接交给识别引擎（这一步不会弹窗） */
+  if(st==='granted' && !force){ micGrantedOnce=true; return {ok:true, granted:true, noGum:true}; }
+  /* 其余情况（prompt / unknown / 以前授权过但这次查不到）一律在"用户刚点按钮"这一刻把授权问到，
+     并把音轨立刻释放。绝不能让识别引擎自己去要权限 ——
+     它会在"你开口说话、真正开始采集"的那一刻才弹窗，比启动时弹更打断人，
+     这正是 v0.7「一开口就弹麦克风权限」的原因。 */
+  const now=performance.now();
+  if(!force && micLastProbeT && now-micLastProbeT<1200) return {ok:true, racing:true};
+  micLastProbeT=now;
+  mlog('→ getUserMedia 请求授权（点按钮时）');
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+    micGrantedOnce=true;
+    /* 拿到授权立刻释放：长期持有会和识别引擎抢同一个麦克风，是 audio-capture 的主要来源 */
+    try{ stream.getTracks().forEach(t=>t.stop()); }catch(_){}
+    localStorage.setItem(MIC_FLAG,'1');
+    mlog('✓ 授权成功，音轨已释放');
+    return {ok:true, granted:true, fresh:true};
+  }catch(err){
+    mlog('✗ 授权失败 '+(err&&err.name));
+    return {ok:false, name:(err&&err.name)||''};
+  }
+}
+function releaseMicLater(ms){
+  clearTimeout(micReleaseTimer);
+  micReleaseTimer=setTimeout(()=>{
+    if(recRunning||voskRunning) return;
+    if(micStream){ try{ micStream.getTracks().forEach(t=>t.stop()); }catch(_){} micStream=null; }
+  }, ms===undefined?10000:ms);
+}
+window.addEventListener('beforeunload',()=>{
+  stopStallWatch();
+  if(micStream){ try{ micStream.getTracks().forEach(t=>t.stop()); }catch(_){} }
+});
+
+/* ===== v0.7 停滞看门狗：只看"识别有没有动静"，全程不碰麦克风 =====
+   v0.6 的看门狗每 2.5s 检查 micTracksLive()，一失效就 ensureMic(true) → 又一次权限请求。
+   这里改成纯事件观测：15 秒内没有任何识别事件就重启识别（不调 getUserMedia）。 */
+let stallT=null, lastActivityT=0;
+function stopStallWatch(){ if(stallT){ clearInterval(stallT); stallT=null; } }
+function touchActivity(){ lastActivityT=performance.now(); }
+function startStallWatch(){
+  stopStallWatch();
+  touchActivity();
+  stallT=setInterval(()=>{
+    if(!recRunning) return;
+    if(performance.now()-lastActivityT<15000) return;
+    if(!canRestart()){ pauseWithHint('识别反复无响应，已暂停自动重连（避免反复弹出麦克风授权）'); return; }
+    noteRestart(); touchActivity();
+    setStatus('识别无响应，重连中…','warn');
+    try{ recg.abort(); }catch(_){}
+    setTimeout(()=>{ if(recRunning) tryStartRec(); },800);
+  },3000);
+}
+
+/* v0.14：识别状态灯从演示条移到工具栏，常驻可见 */
+function setStatus(txt,cls){
+  const el=document.getElementById('statusChip');
+  if(!el) return;
+  el.textContent=txt;
+  el.className=cls||'';
+}
+/* ===== v0.7 重启节流：只重启识别，不碰设备 ===== */
+let restartTimes=[], silentStreak=0, lastResultT=0, resultSinceStart=false;
+let captureFails=0, lastErrCode='';
+const RESTART_WINDOW_MS=60000, RESTART_MAX_IN_WINDOW=25;   // 60 秒内最多自动重启 25 次
+function canRestart(){
+  const now=performance.now();
+  restartTimes=restartTimes.filter(t=>now-t<RESTART_WINDOW_MS);
+  return restartTimes.length<RESTART_MAX_IN_WINDOW;
+}
+function noteRestart(){ restartTimes.push(performance.now()); }
+function restartDelay(){
+  if(silentStreak<=0) return 600;                       // 正常断流：0.6s 后接上
+  return Math.min(500*Math.pow(1.6,silentStreak-1),6000); // 连续没声音：0.5→6s 退避
+}
+function tryStartRec(){
+  if(!recRunning||!recg) return;
+  try{ recg.start(); mlog('rec.start()'); }
+  catch(e){
+    if(e && e.name==='InvalidStateError') return;        // 还在跑，忽略
+    mlog('rec.start() 失败 '+e.name);
+    setTimeout(()=>{ if(recRunning&&recg){ try{ recg.start(); }catch(_){} } },1000);
+  }
+}
+function restoreMicBtns(){
+  const b=document.getElementById('micBtn'); if(b) b.textContent='🎤 在线跟读';
+}
+/* 自动重连停摆：保留高亮与进度，等用户手点一次恢复（一次点击最多一次授权弹窗） */
+function pauseWithHint(msg){
+  recRunning=false; following=false;
+  mlog('⏸ 暂停：'+msg.slice(0,18));
+  clearTimeout(recRestartTimer);
+  stopStallWatch();
+  if(recg){ const r=recg; recg=null; try{ r.onend=null; r.onerror=null; r.abort(); }catch(_){} }
+  setMode('已暂停','warn');
+  setStatus('已暂停 · 点「继续跟读」恢复','warn');
+  const b=document.getElementById('micBtn'); if(b){ b.classList.remove('on'); b.textContent='🎤 继续跟读'; }
+  toast(msg,6500);
+}
+/* 麦克风自检：把关键状态一次性摆出来，方便判断"到底是权限、设备还是网络" */
+async function micDiag(){
+  const st=await micState();
+  const proto=location.protocol;
+  const recent=restartTimes.filter(t=>performance.now()-t<60000).length;
+  const lines=[
+    '打开方式：'+proto+(proto==='file:'?'（file:// 页面浏览器通常不记住麦克风授权，重新打开文件需再允许一次，属浏览器限制）':'（本地服务/网站来源，授权可被记住）'),
+    '权限状态：'+st,
+    '本场已确认授权：'+(micGrantedOnce?'是':'否'),
+    '正在识别：'+(recRunning?'是（'+(lastErrCode?'最近错误 '+lastErrCode:'正常')+'）':'否'),
+    '近 60 秒自动重启识别：'+recent+' 次（上限 25）',
+    '离线识别占用音轨：'+(micTracksLive()?'是':'否'),
+    '语音接口：'+((window.SpeechRecognition||window.webkitSpeechRecognition)?'可用':'不可用'),
+    '',
+    '—— 最近事件 ——',
+    micLog.slice(-12).join('\n') || '（暂无）'
+  ];
+  alert('🩺 麦克风诊断\n\n'+lines.join('\n'));
+}
+
+async function startOnline(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){ toast('此浏览器不支持在线语音识别，请用 Chrome / Edge 打开本文件'); setStatus('浏览器不支持','warn'); return; }
+  if(recRunning||speechStarting) return;
+  if(voskRunning) stopOffline();        // v0.14：在线/离线互斥
+  if(autoScroll) autoStop();            // v0.14：从自动滚动切过来时退出自动滚动
+  speechStarting=true;
+  setStatus('准备麦克风…','');
+  { const mb=document.getElementById('micBtn'); if(mb) mb.textContent='🎤 请求中…'; }
+  /* 整场只在这里碰一次麦克风：已授权时一次 getUserMedia 都不发（见 ensureMicOnce） */
+  const mic=await ensureMicOnce();
+  if(!mic.ok){
+    speechStarting=false;
+    restoreMicBtns();
+    const name=mic.name||'';
+    if(name==='NotAllowedError'||name==='SecurityError'){
+      toast('麦克风被拒绝：请在地址栏的权限提示里选“允许”；若在内嵌预览窗口里，请用 Chrome/Edge 直接打开 index-v0.15.html 再试');
+      setStatus('麦克风被拒','warn');
+    }else if(name==='NotFoundError'){
+      toast('未检测到麦克风设备，请连接麦克风后重试'); setStatus('无麦克风','warn');
+    }else{
+      toast('无法访问麦克风：'+(name||'未知错误')); setStatus('麦克风异常','warn');
+    }
+    return;
+  }
+  speechStarting=false;
+  if(mic.fresh) await new Promise(r=>setTimeout(r,120));   // 等采集通道配好，减少首个 not-allowed
+  mlog('▶ 开始跟读（授权来源：'+(mic.noGum?'系统已授权':(mic.fresh?'本次点击申请':'会话内复用'))+'）');
+  if(recg){ const old=recg; recg=null; try{ old.onend=null; old.onerror=null; old.abort(); }catch(_){} }
+  recg=new SR();
+  recg.lang='zh-CN';
+  recg.continuous=true;
+  recg.interimResults=true;
+  recg.maxAlternatives=1;
+  /* 这些事件只用来判断"识别还活着"，不涉及任何设备操作 */
+  recg.onstart=()=>{ touchActivity(); resultSinceStart=false; setStatus('识别中…','live'); };
+  recg.onaudiostart=()=>{ touchActivity(); };
+  recg.onsoundstart=()=>{ touchActivity(); };
+  recg.onspeechstart=()=>{ touchActivity(); };
+  recg.onspeechend=()=>{ touchActivity(); };
+  recg.onresult=e=>{
+    let full='';
+    for(let i=0;i<e.results.length;i++) full+=e.results[i][0].transcript;
+    if(full){
+      spokenText=full; netErrCount=0; gotAnyResult=true;
+      resultSinceStart=true; silentStreak=0; captureFails=0;
+      lastResultT=performance.now(); touchActivity();
+      setStatus('识别中…','live'); enqueueTranscript(full);
+    }
+  };
+  recg.onerror=e=>{
+    const code=e.error; lastErrCode=code; mlog('✗ 识别错误 '+code); console.warn('speech error',code);
+    if(code==='not-allowed'||code==='service-not-allowed'){
+      localStorage.removeItem(MIC_FLAG);
+      micGrantedOnce=false;
+      /* 朗读中途绝不再向浏览器要权限：那会在"你开口说话"的瞬间弹窗，最打断人。
+         直接停下，等用户手点「继续跟读」——授权只会在点击那一刻申请一次。 */
+      pauseWithHint('麦克风授权没有生效：点「继续跟读」，在弹出的窗口里选“允许”。授权只会在你点击时申请，不会在朗读中弹出');
+      return;
+    }
+    if(code==='audio-capture'){
+      /* 设备被别的程序独占 / 被拔掉：不碰设备、不清流，只退避重启识别 */
+      captureFails++;
+      setStatus('麦克风被占用，稍后重试…','warn');
+      touchActivity();
+      if(captureFails>=3) pauseWithHint('麦克风被其他程序占用（会议、录音、语音助手等），已暂停；关掉占用程序后点「继续跟读」');
+      return;
+    }
+    if(code==='network'){
+      netErrCount++;
+      if(netErrCount>=2){ toast('在线识别联网失败：Chrome 的语音服务在当前网络可能不可用，建议改用 Edge，或先用「▶ 开始」自动滚动看提词效果'); setStatus('网络失败','warn'); stopOnline(true); }
+      return;
+    }
+    /* no-speech / aborted：交给 onend 退避重启 */
+  };
+  recg.onend=()=>{
+    if(!recRunning) return;
+    clearTimeout(recRestartTimer);
+    if(!resultSinceStart) silentStreak++; else silentStreak=0;
+    resultSinceStart=false;
+    /* 从来没出过结果 → 多半是设备/隐私设置问题，重启 4 次就停，不要空转 */
+    if(!gotAnyResult && silentStreak>=4){
+      pauseWithHint('麦克风已打开但收不到识别结果：请检查 Windows「设置 → 隐私和安全性 → 麦克风」是否允许桌面应用，并确认麦克风没被其他程序独占');
+      return;
+    }
+    /* 长时间没声音（用户停下来了）→ 暂停，避免后台空转；继续时点一下即可 */
+    if(gotAnyResult && silentStreak>=4 && performance.now()-lastResultT>20000){
+      pauseWithHint('已暂停：20 秒没有检测到朗读。继续时点「继续跟读」');
+      return;
+    }
+    if(!autoReconnect){ pauseWithHint('已暂停：自动重连已关闭（可在「⚓ 锚点位置」里打开）。点「继续跟读」继续'); return; }
+    if(!canRestart()){
+      pauseWithHint('识别重启过于频繁，已暂停自动重连（避免反复弹出麦克风授权）');
+      return;
+    }
+    noteRestart();
+    recRestartDelay=restartDelay();
+    mlog('rec.end() → '+recRestartDelay+'ms 后重启（不碰设备）');
+    recRestartTimer=setTimeout(()=>{ if(recRunning) tryStartRec(); },recRestartDelay);
+  };
+  /* v0.11：不复位，从当前位置接着跟读（自动滚动停在哪、上轮读到哪，都接着走） */
+  const from=currentReadPos();
+  tokCursor=from;
+  searchFrom=(scriptTokens[from]?scriptTokens[from].s:0);
+  spokenText=''; pendingT=null; netErrCount=0;
+  restartCount=0; gotAnyResult=false; restartTimes=[]; silentStreak=0;
+  resultSinceStart=false; captureFails=0;
+  lastResultT=performance.now();
+  alignFollowTo(from);
+  recRunning=true; following=true; autoStop();
+  updateAutoUi();
+  try{ recg.start(); }catch(e){ console.warn(e); toast('启动识别失败：'+(e.message||e)); stopOnline(true); return; }
+  setMode('在线跟读中','live');
+  setStatus('识别中…','live');
+  startStallWatch();                            // 只看识别有没有动静，不碰麦克风
+  document.getElementById('micBtn').classList.add('on');
+  document.getElementById('micBtn').textContent='⏹ 停止跟读';
+}
+function stopOnline(byError){
+  recRunning=false; following=false;
+  clearTimeout(recRestartTimer);
+  stopStallWatch();
+  if(recg){ const r=recg; recg=null; try{ r.onend=null; r.onerror=null; r.abort(); }catch(_){} }  // 先摘回调，避免 abort 触发 onend 再重启
+  releaseMicLater(3000);       // 只清理离线识别可能遗留的音轨
+  setMode(byError?'识别已停止':'待机','');
+  const b=document.getElementById('micBtn'); if(b){ b.classList.remove('on'); b.textContent='🎤 在线跟读'; }
+  clearHl(); lastHLKey=-1;
+  setStatus(autoScroll?'自动滚动中':'待机', autoScroll?'live':'');
+}
+
+/* ============ 离线语音识别（vosk-browser，可选） ============
+   v0.14：模型下载/初始化是异步的、可能几十秒，期间用户随时可以切到别的模式，
+   所以这里用令牌（offlineToken）做取消：任何一步回来发现"已经不是我要的了"就直接退出，
+   不会在后台偷偷把人拽回离线识别。 */
+let vosk=null, voskStop=null, voskRunning=false;
+let offlineToken=0, offlineStarting=false;
+function cancelOfflineStart(){
+  offlineToken++;                       // 让正在进行的启动流程失效
+  offlineStarting=false;
+  if(!voskRunning){
+    const b=document.getElementById('offlineBtn');
+    if(b){ b.classList.remove('on'); b.textContent='🎧 离线跟读'; }
+  }
+}
+async function startOffline(){
+  if(voskRunning || offlineStarting) return;
+  if(recRunning) stopOnline();          // v0.14：在线/离线互斥
+  if(autoScroll) autoStop();            // v0.14：从自动滚动切过来时退出自动滚动
+  const my=++offlineToken;
+  offlineStarting=true;
+  const ob0=document.getElementById('offlineBtn'); if(ob0){ ob0.textContent='🎧 准备中…'; }
+  setStatus('准备离线模型…','exp');
+  setMode('下载离线模型…','exp');
+  const stale=()=>my!==offlineToken;     // 中途被切走
+  try{
+    if(!vosk){
+      const mod=await import('https://cdn.jsdelivr.net/npm/vosk-browser@0.0.8/dist/vosk.js');
+      if(stale()) return;
+      const modelUrl=localStorage.getItem('voskModelUrl')||'https://alphacephei.com/vosk/models/vosk-model-small-cn-0.15.zip';
+      vosk=await mod.Model.create(modelUrl);
+      if(stale()) return;
+    }
+    const rec=new vosk.KaldiRecognizer(16000);
+    rec.setWords(true);
+    /* v0.11：不复位，从当前位置接着跟读 */
+    const from=currentReadPos();
+    tokCursor=from;
+    searchFrom=(scriptTokens[from]?scriptTokens[from].s:0);
+    spokenText=''; pendingT=null;
+    alignFollowTo(from);
+    rec.on('partial',m=>{ if(m&&m.result&&m.result.partial) enqueueTranscript(m.result.partial); });
+    rec.on('result',m=>{ if(m&&m.result&&m.result.text) enqueueTranscript(m.result.text); });
+    /* 离线识别必须自己长期持有音轨（它需要 PCM 数据），与在线识别的策略互不影响 */
+    const mic=await ensureMicOnce();
+    if(stale()) return;
+    if(!mic.ok) throw new Error('麦克风不可用（'+(mic.name||'未授权')+'）');
+    if(!micTracksLive()){
+      micStream=await navigator.mediaDevices.getUserMedia({audio:true});
+      if(stale()) return;
+    }
+    const stream=micStream;
+    const ac=new (window.AudioContext||window.webkitAudioContext)();
+    const src=ac.createMediaStreamSource(stream);
+    const proc=ac.createScriptProcessor(4096,1,1);
+    proc.onaudioprocess=e=>{ rec.acceptWaveform(e.inputBuffer.getChannelData(0)); };
+    src.connect(proc); proc.connect(ac.destination);
+    voskStop=()=>{ try{proc.disconnect();src.disconnect();ac.close();}catch(_){} releaseMicLater(3000); };
+    if(stale()){ try{ voskStop(); }catch(_){} return; }     // 刚好在最后一步被切走：把音轨收干净
+    voskRunning=true; offlineStarting=false; following=true;
+    setMode('离线跟读中','live');
+    setStatus('离线识别中…','live');
+    const b=document.getElementById('offlineBtn'); b.classList.add('on'); b.textContent='⏹ 停止跟读';
+  }catch(e){
+    if(stale()) return;                 // 已经被切走：不要弹窗打断当前模式
+    console.error(e);
+    offlineStarting=false;
+    alert('离线识别启动失败：'+e.message+'\n\n可改为使用在线识别，或在帮助中配置 vosk 模型地址。');
+    setMode('待机','');
+    setStatus('离线识别失败','warn');
+    const b=document.getElementById('offlineBtn'); if(b){ b.classList.remove('on'); b.textContent='🎧 离线跟读'; }
+  }
+}
+function stopOffline(){
+  cancelOfflineStart();
+  voskRunning=false; following=false;
+  if(voskStop) voskStop();
+  setMode('待机','');
+  const b=document.getElementById('offlineBtn'); b.classList.remove('on'); b.textContent='🎧 离线跟读';
+  clearHl(); lastHLKey=-1;
+  setStatus(autoScroll?'自动滚动中':'待机', autoScroll?'live':'');
+}
+
+/* ============ UI 交互 ============ */
+function setMode(text,cls){
+  const t=document.getElementById('modeTag');
+  t.textContent=text; t.className='tag'+(cls?(' '+cls):'');
+}
+/* v0.12：字体只用下拉框；带空格的字体名要加引号，否则 CSS 会忽略整条声明 */
+const GENERIC_FONT=/^(sans-serif|serif|monospace|cursive|fantasy|system-ui)$/i;
+function cssFontFamily(name){
+  if(GENERIC_FONT.test(name)) return name;
+  return '"'+String(name).replace(/"/g,'')+'", "微软雅黑", "Microsoft YaHei", sans-serif';
+}
+/* 旧配置/旧版本可能存着自定义字体名：不在下拉框里就临时补一个选项 */
+function setFontSelect(name){
+  if(!name) return false;
+  const sel=document.getElementById('fontSel');
+  for(const o of sel.options){ if(o.value===name||o.text===name){ sel.value=o.value; return true; } }
+  const opt=document.createElement('option');
+  opt.value=name; opt.textContent=name;
+  sel.appendChild(opt); sel.value=name;
+  return true;
+}
+function applyFont(){
+  const f=document.getElementById('fontSel').value||'微软雅黑';
+  script.style.fontFamily=cssFontFamily(f);
+  localStorage.setItem('font',f);
+}
+/* v0.14：字号 / 行距 与速度一样「滑块 + 数字框」双向联动，输入越界自动回填 */
+function setSize(v){
+  let n=parseFloat(v);
+  if(!isFinite(n)) n=48;
+  n=Math.round(Math.max(20,Math.min(180,n)));
+  const r=document.getElementById('sizeRange'), b=document.getElementById('sizeNum');
+  if(r) r.value=String(n);
+  if(b) b.value=String(n);
+  script.style.fontSize=n+'px';
+  localStorage.setItem('size',n);
+  applyAnchor();
+}
+function applySize(){ setSize(document.getElementById('sizeRange').value); }
+function setLh(v){
+  let n=parseFloat(v);
+  if(!isFinite(n)) n=1.5;
+  n=Math.round(Math.max(1.1,Math.min(2.4,n))*10)/10;
+  const r=document.getElementById('lhRange'), b=document.getElementById('lhNum');
+  if(r) r.value=String(n);
+  if(b) b.value=n.toFixed(1);
+  script.style.lineHeight=n;
+  localStorage.setItem('lh',n);
+  applyAnchor();
+}
+function applyLh(){ setLh(document.getElementById('lhRange').value); }
+/* v0.11：速度直接以"字/秒"为单位，4 = 满量程；滑块与输入框双向联动 */
+function setSpeed(v){
+  let n=parseFloat(v);
+  if(!isFinite(n)) n=2.5;
+  n=Math.max(0.2,Math.min(4,n));
+  n=Math.round(n*10)/10;
+  speed=n;
+  const r=document.getElementById('speedRange');
+  const b=document.getElementById('speedNum');
+  if(r) r.value=String(n);
+  if(b) b.value=n.toFixed(1);      // 输入越界/多小数位时回填规范值
+  localStorage.setItem('speed',n);
+}
+function applySpeed(){ setSpeed(document.getElementById('speedRange').value); }
+/* ============ 提示 ============ */
+function toast(msg,ms=3000){
+  const el=document.getElementById('toast'); if(!el) return;
+  el.textContent=msg; el.classList.add('show');
+  clearTimeout(toast._t); toast._t=setTimeout(()=>el.classList.remove('show'),ms);
+}
+
+/* ============ v0.14 三种模式互斥，可随时互相切换 ============
+   自动滚动 / 在线跟读 / 离线跟读 只能有一个在跑；点哪个就切到哪个，
+   并且都从「当前阅读位置」接着走（不复位）。 */
+function stopAllFollow(){
+  if(recRunning) stopOnline();
+  if(voskRunning) stopOffline();
+}
+function switchToAuto(){
+  cancelOfflineStart();                 // 离线模型还在下载中也一并取消
+  if(recRunning||voskRunning){
+    stopAllFollow();
+    toast('已退出跟读，切换为自动滚动');
+  }
+  if(autoScroll) autoStop(); else autoStart();
+}
+function switchToOnline(){
+  cancelOfflineStart();
+  if(autoScroll){ autoStop(); }
+  if(recRunning){ stopOnline(); return; }
+  if(voskRunning) stopOffline();
+  startOnline();
+}
+function switchToOffline(){
+  if(autoScroll){ autoStop(); }
+  if(voskRunning){ stopOffline(); return; }
+  if(offlineStarting){                    // 模型还在下载/初始化：再点一次＝取消
+    cancelOfflineStart();
+    setMode('待机','');
+    setStatus(autoScroll?'自动滚动中':'待机', autoScroll?'live':'');
+    toast('已取消离线识别');
+    return;
+  }
+  if(recRunning) stopOnline();
+  startOffline();
+}
+
+/* ============ v0.3 跟随引擎：预测推进 + 弹簧平滑 ============ */
+/* 纵向临界阻尼：ω≈10 rad/s，约 0.4s 到位，不冲过头 */
+const SPRING_W=100, SPRING_C=2*Math.sqrt(100);
+
+/* ===== v0.10 自动滚动：改用和语音跟读同一套「火车」引擎 =====
+   旧版只是按 px/秒 往下推 scrollTop，所以是「一整行一整行往上滑」，句子本身不动。
+   现在把自动滚动当成一个匀速朗读的人：虚拟阅读位置以恒定字速前进，
+   横向走 anchorWordX（锚点固定、行内连续滑动），纵向走行内线性插值，
+   与跟读完全同一条路径，区别只是速度由滑块给定、不随识别变化。
+   v0.13：位置改用**字符**计数（标点也算一个），不再按"词元"计数 ——
+   词元表里顿号、逗号是不占位的，一句话顿号多时同样是 N 词元却要滑更多像素，
+   于是越读越快；按字符推进后，顿号也吃时间，滑动速度就恒定了。 */
+function autoCharsPerSec(){ return Math.max(0.2, Math.min(4, speed)); }   // 字/秒（含标点），4 = 满量程
+function updateAutoUi(){
+  const ab=document.getElementById('autoBtn');
+  if(ab){ ab.textContent=autoScroll?'⏸ 暂停':'▶ 开始'; ab.classList.toggle('on',autoScroll); }
+  /* 状态灯：跟读优先，其次自动滚动 */
+  if(recRunning) setStatus('识别中…','live');
+  else if(voskRunning) setStatus('离线识别中…','live');
+  else if(autoScroll) setStatus('自动滚动中','live');
+  else setStatus('待机','');
+}
+/* 字符位置 → 所在行号 */
+function lineOfChar(c){
+  if(!lines.length) return 0;
+  let lo=0, hi=lines.length-1, ans=0;
+  while(lo<=hi){ const mid=(lo+hi)>>1; if(lines[mid].s<=c){ ans=mid; lo=mid+1; } else hi=mid-1; }
+  return ans;
+}
+/* 纵向目标：按该行内的**字符**进度插值到下一行（标点同样占进度） */
+function targetForCharLine(li,c){
+  ensureLineY();
+  if(!lines.length) return 0;
+  const y0=lineY[li]||0;
+  if(li>=lines.length-1) return y0-anchorPx();
+  const ln=lines[li];
+  const len=Math.max(1,ln.e-ln.s);
+  const prog=Math.max(0,Math.min(1,(c-ln.s)/len));
+  const y1=lineY[li+1];
+  if(y1==null) return y0-anchorPx();
+  return y0+(y1-y0)*prog-anchorPx();
+}
+/* 字符位置 → anchorWordX 需要的"浮点词元位置"（用字符间距做小数部分，标点自然占宽度） */
+function hPosFromChar(c){
+  const k=tokenIndexAtChar(Math.floor(c));
+  if(k<0) return 0;
+  const t0=scriptTokens[k], t1=scriptTokens[k+1];
+  if(!t1) return k;
+  const span=t1.s-t0.s;
+  if(!(span>0)) return k;
+  return k+Math.max(0,Math.min(1,(c-t0.s)/span));
+}
+/* 当前阅读位置对应的字符下标（切换模式时接续用） */
+function charOfReadPos(){
+  const N=scriptTokens.length; if(!N) return 0;
+  const i=(readPos>=0 && readPos<N)?readPos:0;
+  return scriptTokens[i]?scriptTokens[i].s:0;
+}
+function autoStart(){
+  if(!scriptTokens.length){ toast('请先载入讲稿'); return; }
+  const end=Math.max(1,fullText.length);
+  if(autoChar<0 || autoChar>=end-1){
+    /* v0.11：从"当前位置"接着滚，不回到开头 */
+    autoChar=charOfReadPos();
+    if(autoChar>=end-1) autoChar=0;
+  }
+  lastAutoTok=-1;
+  autoScroll=true;
+  updateAutoUi();
+}
+/* 只关状态，不动状态灯（stopOnline/stopOffline 里会自己重设） */
+function autoStop(){ autoScroll=false; updateAutoUi(); }
+
+/* v0.11：当前位置（切换模式时用它接续，而不是回到开头） */
+function currentReadPos(){
+  const N=scriptTokens.length;
+  if(!N) return 0;
+  if(readPos>=0 && readPos<N) return readPos;
+  if(autoChar>=0){ const k=tokenIndexAtChar(Math.floor(autoChar)); if(k>=0) return Math.min(N-1,k); }
+  if(lastHLKey>=0 && lastHLKey<N) return lastHLKey;
+  return 0;
+}
+/* 把跟随引擎对齐到某个位置：不做整篇复位，只是"从这儿继续" */
+function alignFollowTo(idx){
+  const N=scriptTokens.length; if(!N) return;
+  const i=Math.max(0,Math.min(N-1,idx));
+  actualPos=i; predPos=i; hPos=i;
+  lastAdvT=0; vDrive=0; vApplied=0; goalF=-1;
+  scrollTarget=targetForPos(i);
+  focusToken(i,false);      // 高亮当前词 + 行内横向对齐；纵向交给 stepVertical 平滑过去
+}
+
+
+function stepVertical(dt){
+  if(scrollTarget==null) return;
+  const max=Math.max(0,scriptWrap.scrollHeight-scriptWrap.clientHeight);
+  const t=Math.max(0,Math.min(max,scrollTarget));
+  const raw=scriptWrap.scrollTop;
+  if(Math.abs(raw-scrollPos)>2){ scrollPos=raw; scrollV=0; }   // 外部滚动（滚轮/键盘）接管
+  /* 一阶低通（τ=70ms）：恒速输入 → 恒速输出，只有固定滞后，不会加速/超调；
+     旧的临界阻尼弹簧在换行时会先冲快再收慢，这就是“速度不稳”的观感来源。 */
+  scrollPos+=(t-scrollPos)*(1-Math.exp(-dt/0.07));
+  scrollV=0;
+  if(!isFinite(scrollPos)){ scrollPos=t; return; }
+  if(Math.abs(t-scrollPos)<0.35) scrollPos=t;
+  scriptWrap.scrollTop=scrollPos;
+}
+/* 横向连续位置：按语速匀速前进（自由轮），识别结果只做平滑纠偏，
+   这样速度不会在“每个词”上重新起步 —— 之前一顿一顿就是相位每词归零造成的。 */
+/* 横向：严格匀速滑行（像一列火车），绝不因“识别到下一个词”而加减速。
+   识别只做极慢的位置纠偏（每帧 0.8% 偏差），肉眼看不出来，只用于防止长期漂移。 */
+function advanceHPos(dt){
+  if(actualPos<0){ hPos=-1; return; }
+  if(hPos<0) hPos=actualPos;
+  hPos+=(vApplied>0?vApplied:vDrive)*dt;
+  const err=actualPos-hPos;
+  if(Math.abs(err)>0.9) hPos+=err*0.008;
+  if(hPos>actualPos+3.5) hPos=actualPos+3.5;
+  if(hPos<actualPos-3.5) hPos=actualPos-3.5;
+}
+/* 横向跟随时的一阶平滑（τ=25ms）：只用于抹平识别抖动，正常匀速运动几乎无滞后 */
+function stepHorizontal(dt){
+  const a=1-Math.exp(-dt/(0.045-0.02*Math.max(0,Math.min(1,sens))));
+  const maxStep=900*dt;                         // 限速 900px/s，超大步幅也滑过去而不是瞬移
+  for(let i=0;i<lines.length;i++){
+    const ln=lines[i];
+    if(!ln.pending) continue;
+    const d=ln.txT-ln.tx;
+    if(Math.abs(d)<0.1){ ln.tx=ln.txT; ln.pending=false; }
+    else{
+      let step=d*a;
+      if(Math.abs(step)>maxStep) step=(step>0?1:-1)*maxStep;
+      ln.tx+=step;
+    }
+    ln.inner.style.transform='translateX('+ln.tx.toFixed(2)+'px)';
+  }
+}
+
+
+/* ============ v0.15 翻页器：按键处理 ============ */
+function padSave(){
+  try{
+    localStorage.setItem(PAD_KEY, JSON.stringify({
+      on:padOn, tapChars:padTapChars, holdFactor:padHoldFactor,
+      volStep:padVolStep, holdMs:padHoldMs, follow:padFollowKind, bindings:padBindings
+    }));
+  }catch(_){}
+}
+function padLoad(){
+  try{
+    const raw=localStorage.getItem(PAD_KEY); if(!raw) return;
+    const d=JSON.parse(raw);
+    if(typeof d.on==='boolean') padOn=d.on;
+    if(isFinite(+d.tapChars))  padTapChars  = Math.max(1,Math.min(120,+d.tapChars));
+    if(isFinite(+d.holdFactor))padHoldFactor= Math.max(1.5,Math.min(6,+d.holdFactor));
+    if(isFinite(+d.volStep))   padVolStep   = Math.max(0.05,Math.min(1,+d.volStep));
+    if(isFinite(+d.holdMs))    padHoldMs    = Math.max(150,Math.min(800,+d.holdMs));
+    if(d.follow==='offline'||d.follow==='online') padFollowKind=d.follow;
+    if(Array.isArray(d.bindings)){
+      const defs=padDefaultBindings();
+      padBindings=defs.map((def,i)=>Object.assign({},def,d.bindings[i]||{}));
+    }
+  }catch(_){}
+  padSyncUi();
+}
+const PAD_MEDIA_LABEL={
+  AudioVolumeUp:'音量+键', AudioVolumeDown:'音量-键', AudioVolumeMute:'静音键',
+  MediaPlayPause:'播放/暂停键', MediaTrackNext:'下一曲键', MediaTrackPrevious:'上一曲键'
+};
+function padKeyLabel(b){
+  if(!b || (!b.code && !b.key && !b.kc)) return '';
+  const c=b.code||b.key||'';
+  return PAD_MEDIA_LABEL[c] || c || ('VK'+b.kc);
+}
+function padFind(e){
+  for(const b of padBindings){
+    if(!b.code && !b.key && !b.kc) continue;
+    if(b.code && e.code && b.code===e.code) return b;
+    if(b.key && e.key && b.key===e.key) return b;
+    if(b.kc && e.keyCode && b.kc===e.keyCode) return b;
+  }
+  return null;
+}
+/* —— 位置跳转：按字符精确跳，三种模式都能用 —— */
+function padGotoChar(c, snap){
+  const N=scriptTokens.length; if(!N) return;
+  const end=Math.max(1,fullText.length);
+  c=Math.max(0,Math.min(end-1,c));
+  const ai=Math.max(0,Math.min(N-1,tokenIndexAtChar(Math.floor(c))));
+  jumpToToken(ai);                 // 游标 / 匹配起点 / 高亮 / 立刻归位
+  autoChar=c; lastAutoTok=ai;      // jumpToToken 只落到词元起点，这里精确到字
+  hPos=hPosFromChar(c);
+  const li=lineOfToken(ai);
+  anchorWordX(li,true);
+  scrollTarget=targetForCharLine(li,c);
+  if(snap!==false){ scrollPos=scrollTarget; scriptWrap.scrollTop=scrollTarget; }
+  updateProgress();
+}
+function padSeekChars(delta){
+  const N=scriptTokens.length;
+  if(!N){ toast('请先载入讲稿'); return; }
+  const end=Math.max(1,fullText.length);
+  let base=(autoScroll||padHoldMode) ? autoChar : (readPos>=0?charOfReadPos():0);
+  if(!(base>=0)) base=0;
+  const c=Math.max(0,Math.min(end-1,base+delta));
+  padGotoChar(c,true);
+  const li=lineOfToken(tokenIndexAtChar(Math.floor(c)));
+  toast((delta>0?'⏩ 快进 ':'⏪ 快退 ')+Math.abs(Math.round(delta))+' 字 · 第 '+(li+1)+' 行',1400);
+}
+function padSpeedStep(d){
+  setSpeed(speed+d);
+  toast('滚动速度 '+speed.toFixed(1)+' 字/秒'+(autoScroll?'':'（点「▶ 开始」后生效）'),1400);
+}
+function padOnAction(act){
+  switch(act){
+    case 'seekFwd':    padSeekChars(padTapChars); break;
+    case 'seekBack':   padSeekChars(-padTapChars); break;
+    case 'speedUp':    padSpeedStep(+padVolStep); break;
+    case 'speedDown':  padSpeedStep(-padVolStep); break;
+    case 'togglePlay': padTogglePlay(); break;
+    case 'switchMode': padSwitchMode(); break;
+    default: break;
+  }
+}
+/* 单击：只控制「自动滚动」的开始/暂停；跟读进行中不抢（避免误触把识别停掉） */
+function padTogglePlay(){
+  if(recRunning||voskRunning){ toast('跟读进行中：双击 Tab 可切到自动滚动',1600); return; }
+  document.getElementById('autoBtn').click();
+}
+/* v0.15：双击 Tab —— 语音跟读 ↔ 自动滚动 来回切（跟读用在线还是离线可先在面板里选） */
+function padSwitchMode(){
+  const following=(recRunning||voskRunning);
+  if(following){
+    switchToAuto();                       // 内部会停识别、开自动滚动
+    if(autoScroll) toast('已切换：语音跟读 → 自动滚动',2200);
+    return;
+  }
+  if(padFollowKind==='offline') switchToOffline(); else switchToOnline();
+  toast('已切换：自动滚动 → 语音跟读（'+(padFollowKind==='offline'?'离线':'在线')+'）',2200);
+}
+function padStartHold(kind){
+  padHoldMode = (kind==='holdSlow') ? 2 : 1;
+  setStatus(padHoldMode===1?'长按加速中…':'长按减速中…','live');
+}
+function padEndHold(){
+  if(!padHoldMode) return;
+  padHoldMode=0;
+  const N=scriptTokens.length;
+  if(N){
+    /* 跟读模式下：把实际位置/匹配游标一起挪到当前读到的字，松开后不会弹回原处 */
+    const c=Math.max(0,autoChar);
+    const ai=Math.max(0,Math.min(N-1,tokenIndexAtChar(Math.floor(c))));
+    actualPos=ai; predPos=ai; hPos=hPosFromChar(c);
+    lastAdvT=performance.now(); vDrive=0; vApplied=0; goalF=-1;
+    tokCursor=ai+1;
+    searchFrom=scriptTokens[ai]?scriptTokens[ai].s:searchFrom;
+    spokenText=''; pendingT=null;
+  }
+  updateAutoUi();
+}
+/* 与自动滚动同一条路径：按字符匀速推进（dirMul 只在长按时不为 1） */
+function padAdvance(dt, dirMul){
+  const N=scriptTokens.length;
+  if(!N){ if(!padHoldMode) autoStop(); return; }
+  if(autoChar<0) autoChar=charOfReadPos();
+  const cps=Math.max(0.05, autoCharsPerSec()*dirMul);
+  const end=Math.max(1,fullText.length);
+  autoChar+=cps*dt;
+  if(autoChar>=end-1){
+    autoChar=end-1;
+    if(!padHoldMode){ autoStop(); toast('自动滚动已到末尾'); }
+  }
+  const ai=Math.max(0,Math.min(N-1,tokenIndexAtChar(Math.floor(autoChar))));
+  hPos=hPosFromChar(autoChar);
+  if(ai!==lastAutoTok){ lastAutoTok=ai; focusToken(ai,false); }
+  const li=lineOfToken(ai);
+  anchorWordX(li,false);
+  scrollTarget=targetForCharLine(li,autoChar);
+}
+/* —— 按键入口：返回 true 表示"这个键被提词器接管了" —— */
+function padHasDbl(b){ return !!(b && b.dbl && b.dbl!=='none'); }
+function padKeyDown(e){
+  if(padCapturing) return false;                       // 重绑流程自己处理
+  if(!padOn) return false;
+  if(/^(INPUT|TEXTAREA|SELECT)$/.test((e.target&&e.target.tagName)||'')) return false;
+  const b=padFind(e);
+  if(!b || !b.enabled) return false;
+  e.preventDefault(); e.stopPropagation();             // 开翻页器后浏览器不再响应这些键
+  if(e.repeat) return true;                            // 长按的系统重复：只吃掉，不重复触发
+
+  const el=document.getElementById('padLast');
+  if(el) el.textContent='最近收到：'+padKeyLabel(b);
+  const now=performance.now();
+
+  /* 双击：同一个键在 padDblMs 内第二次按下 → 取消待发的单击，直接执行双击动作 */
+  if(padHasDbl(b) && padDblBind===b && (now-padDblT)<=padDblMs){
+    clearTimeout(padTapTimer); padTapTimer=null; padTapBind=null;
+    clearTimeout(padHoldTimer);
+    padDblBind=null; padSwallowUp=true; padDown=null;
+    padOnAction(b.dbl);
+    return true;
+  }
+
+  padDown=b;
+  padDblBind=b; padDblT=now; padSwallowUp=false;
+  if(b.hold && b.hold!=='none'){
+    clearTimeout(padHoldTimer);
+    padHoldTimer=setTimeout(()=>{
+      if(padDown!==b) return;
+      padStartHold(b.hold);
+    }, padHoldMs);
+  }
+  return true;
+}
+function padKeyUp(e){
+  if(padCapturing || !padOn) return false;
+  if(/^(INPUT|TEXTAREA|SELECT)$/.test((e.target&&e.target.tagName)||'')) return false;
+  const b=padFind(e);
+  if(!b || !b.enabled) return false;
+  e.preventDefault(); e.stopPropagation();
+  clearTimeout(padHoldTimer);
+  if(padSwallowUp){ padSwallowUp=false; padDown=null; return true; }   // 双击的第二下，抬起不再动作
+  if(padHoldMode){ padEndHold(); padDown=null; return true; }
+  if(padDown!==b) return true;
+  padDown=null;
+  /* 配了双击的键：单击要等一下，确认不是双击再执行 */
+  if(padHasDbl(b)){
+    clearTimeout(padTapTimer);
+    padTapBind=b;
+    padTapTimer=setTimeout(()=>{
+      padTapTimer=null;
+      const bb=padTapBind; padTapBind=null; padDblBind=null;
+      if(bb) padOnAction(bb.tap);
+    }, padDblMs);
+  }else{
+    padOnAction(b.tap);
+  }
+  return true;
+}
+/* —— 设置面板 —— */
+function padSyncUi(){
+  document.body.classList.toggle('pad-on', padOn);
+  const b=document.getElementById('padBtn');
+  if(b) b.textContent=padOn?'🎮 翻页器已开':'🎮 翻页器';
+  const c=document.getElementById('padOnCheck');
+  if(c) c.checked=padOn;
+  const setv=(id,v)=>{ const el=document.getElementById(id); if(el) el.value=v; };
+  setv('padCharsRange',padTapChars); setv('padCharsNum',padTapChars);
+  setv('padFactorRange',padHoldFactor); setv('padFactorNum',padHoldFactor);
+  setv('padVolRange',padVolStep); setv('padVolNum',padVolStep);
+  setv('padHoldRange',padHoldMs); setv('padHoldNum',padHoldMs);
+  const fs=document.getElementById('padFollowSel'); if(fs) fs.value=padFollowKind;
+  padRenderList();
+}
+function padRenderList(){
+  const host=document.getElementById('padList'); if(!host) return;
+  host.innerHTML='';
+  padBindings.forEach(b=>{
+    const wrap=document.createElement('div'); wrap.className='pkey';
+    const label=padKeyLabel(b);
+    wrap.innerHTML=
+      '<div class="prow">'+
+        '<span class="kchip'+(label?'':' empty')+'">'+(label||'未绑定')+'</span>'+
+        '<span class="kname">'+escHtml(b.name||'')+'</span>'+
+        '<label class="en"><input type="checkbox" '+(b.enabled?'checked':'')+'>启用</label>'+
+        '<button class="rb'+(padCapturing===b.id?' cap':'')+'">'+(padCapturing===b.id?'请按键…':'重绑')+'</button>'+
+        '<button class="cl" title="清除绑定">✕</button>'+
+      '</div>'+
+      '<div class="prow2">'+
+        '<label>点按</label><select class="tapSel"></select>'+
+        '<label>长按</label><select class="holdSel"></select>'+
+        '<label>双击</label><select class="dblSel"></select>'+
+      '</div>';
+    const tap=wrap.querySelector('.tapSel'), hold=wrap.querySelector('.holdSel'), dbl=wrap.querySelector('.dblSel');
+    ['seekFwd','seekBack','speedUp','speedDown','togglePlay','none'].forEach(k=>{
+      const o=document.createElement('option'); o.value=k; o.textContent=PAD_TAP[k]; tap.appendChild(o);
+    });
+    ['none','holdFast','holdSlow'].forEach(k=>{
+      const o=document.createElement('option'); o.value=k; o.textContent=PAD_HOLD[k]; hold.appendChild(o);
+    });
+    ['none','switchMode','togglePlay','seekFwd','seekBack'].forEach(k=>{
+      const o=document.createElement('option'); o.value=k; o.textContent=PAD_DBL[k]; dbl.appendChild(o);
+    });
+    tap.value=b.tap||'none'; hold.value=b.hold||'none'; dbl.value=b.dbl||'none';
+    wrap.querySelector('input[type=checkbox]').onchange=e=>{ b.enabled=e.target.checked; padSave(); };
+    tap.onchange=()=>{ b.tap=tap.value; padSave(); };
+    hold.onchange=()=>{ b.hold=hold.value; padSave(); };
+    dbl.onchange=()=>{ b.dbl=dbl.value; padSave(); };
+    wrap.querySelector('.rb').onclick=()=>padStartCapture(b.id);
+    wrap.querySelector('.cl').onclick=()=>{
+      b.code=''; b.key=''; b.kc=0; b.enabled=false; padSave(); padSyncUi();
+      toast('已清除这个键的绑定');
+    };
+    host.appendChild(wrap);
+  });
+}
+function escHtml(t){ return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function padStartCapture(id){
+  padCapturing=id;
+  padSyncUi();
+  const el=document.getElementById('padLast');
+  if(el) el.textContent='请按翻页器上的按键…（Esc 取消）';
+}
+function padFinishCapture(e){
+  const b=padBindings.find(x=>x.id===padCapturing);
+  padCapturing=null;
+  if(!b){ padSyncUi(); return; }
+  if(e && e.key==='Escape'){ padSyncUi(); toast('已取消绑定'); return; }
+  if(!e){ padSyncUi(); return; }
+  const dup=padBindings.find(x=>x!==b && x.enabled && ((x.code&&x.code===e.code)||(x.kc&&x.kc===e.keyCode)));
+  b.code=e.code||''; b.key=e.key||''; b.kc=e.keyCode||0; b.enabled=true;
+  padSave(); padSyncUi();
+  const lab=padKeyLabel(b);
+  toast('已绑定：'+lab+(dup?('（原「'+dup.name+'」也用了这个键，已同时生效）'):''),4000);
+}
+/* 读取下一个按键用于重绑：捕获阶段拦截，避免被其它逻辑吃掉 */
+window.addEventListener('keydown',e=>{
+  if(!padCapturing) return;
+  e.preventDefault(); e.stopPropagation();
+  if(e.repeat) return;
+  padFinishCapture(e);
+},true);
+function padToggle(force){
+  padOn=(force===undefined)?!padOn:!!force;
+  padSave(); padSyncUi();
+  if(padOn){
+    setStatus('翻页器已接管','live');
+    toast('翻页器已开启：绑定过的按键只由提词器处理，不再触发浏览器滚动',4200);
+  }else{
+    padEndHold(); padDown=null; clearTimeout(padHoldTimer); clearTimeout(padTapTimer);
+    updateAutoUi();
+  }
+}
+function padTogglePanel(force){
+  const el=document.getElementById('padPanel');
+  const show=(force===undefined)?!el.classList.contains('show'):!!force;
+  el.classList.toggle('show',show);
+  if(show) padSyncUi();
+}
+
+let lastT=performance.now();
+function tick(now){
+  const dt=Math.min(0.05,Math.max(0.001,(now-lastT)/1000)); lastT=now;
+  const follow=(recRunning||voskRunning||following);
+
+  if(padHoldMode){
+    /* 长按：临时按倍数匀速推进（跟读中也可用，松开时把游标挪过去） */
+    padAdvance(dt, padHoldMode===1?padHoldFactor:(1/padHoldFactor));
+  }else if(follow && predPos>=0){
+    if(now<manualHoldUntil){
+      scrollTarget=scriptWrap.scrollTop;      // 手动滚动期间：让开，不抢滚动条
+      scrollV=0;
+    }else{
+      advancePrediction(now,dt);              // 匀速轮驱动（关闭预测时提前量为 0）
+      advanceHPos(dt);                        // 横向匀速推进（顺滑，不顿挫）
+      scrollTarget=targetForPos(predPos);     // 纵向目标
+      if(hPos>=0){
+        /* 用“滚动位置所在的行”驱动横向：读完本行最后一个字立刻换到下一行，
+           不会在行尾卡住等换行（那正是长句末尾的“一顿”）。 */
+        const vl=lineOfToken(Math.min(scriptTokens.length-1,Math.floor(hPos)));
+        anchorWordX(vl,false);
+      }
+    }
+  }else if(autoScroll){
+    padAdvance(dt, 1);                                                // 自动滚动：按字符匀速推进
+  }
+
+  stepVertical(dt);
+  stepHorizontal(dt);
+
+  if(now-rateHudT>250){ rateHudT=now; updateRateHud(); }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+/* ============ 事件绑定 ============ */
+document.getElementById('openBtn').onclick=()=>document.getElementById('fileInput').click();
+document.getElementById('fileInput').onchange=e=>{ if(e.target.files[0]) loadFile(e.target.files[0]); };
+document.getElementById('pasteBtn').onclick=()=>{ document.getElementById('pasteModal').classList.add('show'); };
+document.getElementById('pasteCancel').onclick=()=>document.getElementById('pasteModal').classList.remove('show');
+document.getElementById('pasteOk').onclick=()=>{ const t=document.getElementById('pasteArea').value; if(t.trim()){ setScript(t); setMode('已载入',''); } document.getElementById('pasteModal').classList.remove('show'); };
+document.getElementById('helpBtn').onclick=()=>document.getElementById('helpModal').classList.add('show');
+/* v0.9：file:// 提示条 */
+{ const fc=document.getElementById('fileWarnClose');
+  if(fc) fc.onclick=()=>{ document.body.classList.remove('file-mode'); localStorage.setItem('v09.hideFileWarn','1'); };
+  const fh=document.getElementById('fileWarnHow');
+  if(fh) fh.onclick=()=>{ document.getElementById('helpModal').classList.add('show'); };
+}
+document.getElementById('helpClose').onclick=()=>document.getElementById('helpModal').classList.remove('show');
+{ const db=document.getElementById('micDiagBtn'); if(db) db.onclick=micDiag; }
+
+document.getElementById('fontSel').onchange=applyFont;
+document.getElementById('sizeRange').oninput=applySize;
+document.getElementById('lhRange').oninput=applyLh;
+document.getElementById('speedRange').oninput=applySpeed;
+/* v0.11/v0.14：字号、行距、速度都能直接输入；回车/失焦时规范化回填 */
+function bindNumInput(id,setter){
+  const el=document.getElementById(id);
+  if(!el) return;
+  el.onchange=()=>setter(el.value);
+  el.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); setter(el.value); el.blur(); } };
+}
+bindNumInput('sizeNum',setSize);
+bindNumInput('lhNum',setLh);
+bindNumInput('speedNum',setSpeed);
+
+/* v0.14：自动滚动 / 在线跟读 / 离线跟读 三者互斥，点哪个就切到哪个 */
+document.getElementById('autoBtn').onclick=switchToAuto;
+document.getElementById('micBtn').onclick=switchToOnline;
+document.getElementById('offlineBtn').onclick=switchToOffline;
+/* ===== v0.15 翻页器 ===== */
+document.getElementById('padBtn').onclick=()=>padToggle();
+document.getElementById('padCfgBtn').onclick=()=>padTogglePanel();
+document.getElementById('padClose').onclick=()=>padTogglePanel(false);
+document.getElementById('padOnCheck').onchange=e=>padToggle(e.target.checked);
+document.getElementById('padFollowSel').onchange=e=>{
+  padFollowKind=(e.target.value==='offline')?'offline':'online';
+  padSave(); toast('双击切换时将使用'+(padFollowKind==='offline'?'离线':'在线')+'跟读');
+};
+document.getElementById('padReset').onclick=()=>{
+  padBindings=padDefaultBindings(); padTapChars=12; padHoldFactor=2.5; padVolStep=0.1; padHoldMs=320; padFollowKind='online';
+  padSave(); padSyncUi(); toast('翻页器按键已恢复默认');
+};
+/* 三个数值：滑块 + 数字框双向 */
+function padBindNum(rangeId, numId, apply){
+  const r=document.getElementById(rangeId), n=document.getElementById(numId);
+  const set=v=>{ apply(v); padSave(); padSyncUi(); };
+  if(r) r.oninput=()=>set(r.value);
+  if(n){
+    n.onchange=()=>set(n.value);
+    n.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); set(n.value); n.blur(); } };
+  }
+}
+padBindNum('padCharsRange','padCharsNum', v=>{ const n=Math.round(Math.max(1,Math.min(120,+v||12))); padTapChars=n; });
+padBindNum('padFactorRange','padFactorNum', v=>{ const n=Math.max(1.5,Math.min(6,+v||2.5)); padHoldFactor=Math.round(n*10)/10; });
+padBindNum('padVolRange','padVolNum', v=>{ const n=Math.max(0.05,Math.min(1,+v||0.1)); padVolStep=Math.round(n*100)/100; });
+padBindNum('padHoldRange','padHoldNum', v=>{ const n=Math.round(Math.max(150,Math.min(800,+v||320))/10)*10; padHoldMs=n; });
+document.getElementById('resetBtn').onclick=()=>{
+  resetPlayback();
+  searchFrom=0; tokCursor=0; lastHLKey=-1; spokenText=''; pendingT=null; updateProgress();
+  setStatus(autoScroll?'自动滚动中':'待机', autoScroll?'live':'');
+};
+document.getElementById('fsBtn').onclick=()=>{ if(!document.fullscreenElement) stage.requestFullscreen(); else document.exitFullscreen(); };
+
+/* ===== v0.2 阅读锚点面板 ===== */
+const anchorPanel=document.getElementById('anchorPanel');
+function toggleAnchorPanel(force){
+  const show=(force===undefined)?!anchorPanel.classList.contains('show'):!!force;
+  anchorPanel.classList.toggle('show',show);
+  document.getElementById('anchorBtn').classList.toggle('on',show);
+}
+function syncAnchorInputs(){
+  document.getElementById('anchorYRange').value=Math.round(anchorRatio*100);
+  document.getElementById('anchorXRange').value=Math.round(anchorXRatio*100);
+  document.getElementById('anchorYVal').textContent=Math.round(anchorRatio*100)+'%';
+  document.getElementById('anchorXVal').textContent=Math.round(anchorXRatio*100)+'%';
+  localStorage.setItem('v02.anchorY',Math.round(anchorRatio*100));
+  localStorage.setItem('v02.anchorX',Math.round(anchorXRatio*100));
+}
+document.getElementById('anchorBtn').onclick=()=>toggleAnchorPanel();
+document.getElementById('anchorClose').onclick=()=>toggleAnchorPanel(false);
+document.getElementById('anchorYRange').oninput=e=>{ anchorRatio=+e.target.value/100; syncAnchorInputs(); applyAnchor(); };
+document.getElementById('anchorXRange').oninput=e=>{ anchorXRatio=+e.target.value/100; syncAnchorInputs(); applyAnchor(); };
+document.getElementById('showAnchor').onchange=e=>{
+  showAnchorLine=e.target.checked;
+  localStorage.setItem('v02.anchorLine',showAnchorLine?'1':'0');
+  document.getElementById('readLine').classList.toggle('hide',!showAnchorLine);
+  document.getElementById('anchorTick').classList.toggle('hide',!showAnchorLine);
+};
+/* v0.3：语速预测 / 预滚提前量 / 短句拼接 */
+/* v0.6：语速跟随灵敏度 */
+document.getElementById('sensRange').oninput=e=>{
+  sens=Math.max(0,Math.min(1,+e.target.value/100));
+  document.getElementById('sensVal').textContent=Math.round(sens*100);
+  localStorage.setItem('v06.sens',sens);
+};
+document.getElementById('predCheck').onchange=e=>{
+  predOn=e.target.checked;
+  localStorage.setItem('v03.pred',predOn?'1':'0');
+  if(!predOn && actualPos>=0){ predPos=actualPos; goalF=-1; }   // 关掉预测立刻回到实测位置
+};
+document.getElementById('leadRange').oninput=e=>{
+  leadSec=+e.target.value;
+  document.getElementById('leadVal').textContent=leadSec.toFixed(2)+'s';
+  localStorage.setItem('v03.lead',leadSec);
+};
+document.getElementById('mergeCheck').onchange=e=>{
+  mergeShort=e.target.checked;
+  localStorage.setItem('v03.merge',mergeShort?'1':'0');
+  rebuildLines();
+  toast(mergeShort?'短句已与下一句拼接':'已改为每句独占一行');
+};
+/* v0.9：断线自动重连开关（file:// 下浏览器每次重连都可能再问权限，可关掉改为手动恢复） */
+let autoReconnect=true;
+document.getElementById('autoRecCheck').onchange=e=>{
+  autoReconnect=e.target.checked;
+  localStorage.setItem('v09.autorec',autoReconnect?'1':'0');
+  toast(autoReconnect?'识别断线后会自动重连':'已关闭自动重连：断线后需点「继续跟读」');
+};
+/* 手动滚动时立刻接管，暂停跟读预滚一会儿再平滑接回 */
+function holdManual(){ manualHoldUntil=performance.now()+1600; scrollV=0; }
+scriptWrap.addEventListener('wheel',holdManual,{passive:true});
+scriptWrap.addEventListener('touchmove',holdManual,{passive:true});
+let _rzT=null;
+window.addEventListener('resize',()=>{ clearTimeout(_rzT); _rzT=setTimeout(()=>{ lineYValid=false; applyAnchor(); },120); });
+
+/* 拖拽加载 */
+['dragenter','dragover'].forEach(ev=>stage.addEventListener(ev,e=>{e.preventDefault();document.getElementById('drop').classList.add('show');}));
+['dragleave','drop'].forEach(ev=>stage.addEventListener(ev,e=>{e.preventDefault();if(ev==='drop'||e.target===stage)document.getElementById('drop').classList.remove('show');}));
+stage.addEventListener('drop',e=>{ const f=e.dataTransfer.files[0]; if(f) loadFile(f); });
+
+/* 键盘快捷键 */
+window.addEventListener('keydown',e=>{
+  if(padKeyDown(e)) return;              // v0.15：翻页器绑定键优先，且已被 preventDefault
+  if(e.target.tagName==='TEXTAREA'||e.target.tagName==='INPUT') return;
+  /* Alt + 方向键：微调锚点上下左右 */
+  if(e.altKey&&/^Arrow(Up|Down|Left|Right)$/.test(e.code)){
+    e.preventDefault();
+    const st=e.shiftKey?5:1;
+    if(e.code==='ArrowUp') anchorRatio=Math.max(0.08,anchorRatio-st/100);
+    else if(e.code==='ArrowDown') anchorRatio=Math.min(0.88,anchorRatio+st/100);
+    else if(e.code==='ArrowLeft') anchorXRatio=Math.max(0.05,anchorXRatio-st/100);
+    else anchorXRatio=Math.min(0.95,anchorXRatio+st/100);
+    syncAnchorInputs(); applyAnchor();
+    return;
+  }
+  if(e.code==='Space'){ e.preventDefault(); document.getElementById('autoBtn').click(); }
+  else if(e.code==='ArrowDown'){ holdManual(); scriptWrap.scrollTop+=60; updateProgress(); }
+  else if(e.code==='ArrowUp'){ holdManual(); scriptWrap.scrollTop-=60; updateProgress(); }
+  else if(e.key==='f'||e.key==='F'){ document.getElementById('fsBtn').click(); }
+  else if(e.key==='r'||e.key==='R'){ document.getElementById('resetBtn').click(); }
+});
+window.addEventListener('keyup',e=>{ padKeyUp(e); },true);
+scriptWrap.addEventListener('scroll',updateProgress);
+
+/* ===== v0.14 点击文字直接跳转到那个词 =====
+   用字符坐标表（buildLineX 已量好每个字的位置）反查：算出鼠标落在行内哪个字，
+   再取该字所在的词元。跳转后三种模式都从新位置继续，不会跳回去。 */
+function lineIndexByEl(el){
+  for(let i=0;i<lines.length;i++) if(lines[i].el===el) return i;
+  return -1;
+}
+function tokenIndexAtOrBefore(c){
+  const N=scriptTokens.length; if(!N) return -1;
+  let lo=0, hi=N-1, ans=-1;
+  while(lo<=hi){ const m=(lo+hi)>>1; if(scriptTokens[m].s<=c){ ans=m; lo=m+1; } else hi=m-1; }
+  return ans;
+}
+function jumpToToken(idx){
+  const N=scriptTokens.length; if(!N) return;
+  const i=Math.max(0,Math.min(N-1,idx));
+  actualPos=i; predPos=i;
+  lastAdvT=0; vDrive=0; vApplied=0; goalF=-1;
+  autoChar=scriptTokens[i].s;        // 自动滚动也从这里接着走
+  lastAutoTok=-1;
+  tokCursor=i+1;                     // 识别游标跟过去，别把读者拉回旧位置
+  searchFrom=scriptTokens[i].s;
+  spokenText=''; pendingT=null;
+  focusToken(i,true);                // 立刻高亮并归位（不等平滑）
+  updateProgress();
+}
+function charAtPoint(x,y){
+  const el=document.elementFromPoint(x,y);
+  const lnEl=el && el.closest ? el.closest('.ln') : null;
+  if(!lnEl) return -1;
+  const li=lineIndexByEl(lnEl);
+  if(li<0) return -1;
+  const ln=lines[li];
+  const len=ln.e-ln.s;
+  if(len<=0) return -1;
+  const ir=ln.inner.getBoundingClientRect();
+  const fs=parseFloat(getComputedStyle(script).fontSize)||48;
+  let best=-1, bestD=Infinity;
+  for(let ci=0;ci<len;ci++){
+    const cx=xAt(ln,ci);
+    if(cx==null) continue;
+    const d=Math.abs(ir.left+cx-x);
+    if(d<bestD){ bestD=d; best=ci; }
+  }
+  if(best<0 || bestD>fs*1.1) return -1;   // 点在行末空白处不算
+  return ln.s+best;
+}
+script.addEventListener('click',e=>{
+  if(!scriptTokens.length) return;
+  const sel=window.getSelection && window.getSelection();
+  if(sel && String(sel).length) return;        // 正在选文字，不跳
+  const c=charAtPoint(e.clientX,e.clientY);
+  if(c<0) return;
+  let k=tokenIndexAtOrBefore(c);
+  if(k<0) return;
+  /* 行首是引号/破折号这类非词元字符时，上面的结果会落到上一行的最后一个词，
+     这里纠正为“被点那一行的第一个词”。 */
+  const lnEl=document.elementFromPoint(e.clientX,e.clientY);
+  const li=lnEl&&lnEl.closest?lineIndexByEl(lnEl.closest('.ln')):-1;
+  if(li>=0 && tokFirst && tokFirst[li]>=0 && lineOfToken(k)<li) k=tokFirst[li];
+  jumpToToken(k);
+});
+
+/* ===== v0.4 词语高亮开关 ===== */
+const hlBtn=document.getElementById('hlBtn');
+function setHlStyle(on){
+  hlOn=!!on;
+  document.body.classList.toggle('hl-off',!hlOn);   // 只切样式，span 保留（横滚靠它测位置）
+  if(hlBtn){ hlBtn.classList.toggle('on',hlOn); hlBtn.textContent=hlOn?'🖍 词语高亮':'🖍 高亮已关'; }
+  localStorage.setItem('v03.hl',hlOn?'1':'0');
+}
+function toggleHl(){ setHlStyle(!hlOn); toast(hlOn?'词语高亮：开（读到哪个词就亮哪个）':'词语高亮：关（只保留整行聚焦）'); }
+if(hlBtn) hlBtn.onclick=toggleHl;
+
+/* ============ v0.11 配置导出 / 导入 ============
+   把"显示 + 滚动 + 跟随"这些偏好整体存成一个小 json，换电脑/换浏览器导入即恢复。 */
+function currentFontName(){
+  return document.getElementById('fontSel').value || '微软雅黑';
+}
+function collectConfig(){
+  return {
+    app:'teleprompter', version:15, savedAt:new Date().toISOString(),
+    font: currentFontName(),
+    size: +document.getElementById('sizeRange').value,
+    lineHeight: +document.getElementById('lhRange').value,
+    speed: speed,                          // 字/秒（0.2~4，4 = 满量程）
+    anchorY: Math.round(anchorRatio*100),
+    anchorX: Math.round(anchorXRatio*100),
+    lead: leadSec,
+    sens: Math.round(sens*100),
+    predict: predOn,
+    mergeShort: mergeShort,
+    highlight: hlOn,
+    autoReconnect: autoReconnect,
+    showAnchorLine: showAnchorLine,
+    pad: {
+      on: padOn, tapChars: padTapChars, holdFactor: padHoldFactor,
+      volStep: padVolStep, holdMs: padHoldMs, follow: padFollowKind, bindings: padBindings
+    }
+  };
+}
+function exportConfig(){
+  const cfg=collectConfig();
+  const blob=new Blob([JSON.stringify(cfg,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download='提词器配置-'+new Date().toISOString().slice(0,10)+'.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1500);
+  toast('配置已导出：'+a.download+'（拷到别的电脑点「⬆ 导入配置」即可）',5000);
+}
+function applyConfig(cfg){
+  if(!cfg || typeof cfg!=='object' || !cfg.app)
+    throw new Error('这不像是提词器的配置文件');
+  const num=v=>v!==undefined && v!==null && isFinite(+v);
+  if(typeof cfg.font==='string' && cfg.font.trim()){
+    setFontSelect(cfg.font.trim());     // 不在列表里会自动补一个选项
+    applyFont();
+  }
+  if(num(cfg.size)){ document.getElementById('sizeRange').value=Math.max(20,Math.min(180,+cfg.size)); applySize(); }
+  if(num(cfg.lineHeight)){ document.getElementById('lhRange').value=Math.max(1.1,Math.min(2.4,+cfg.lineHeight)); applyLh(); }
+  if(num(cfg.speed)) setSpeed(+cfg.speed,'num');
+  if(num(cfg.anchorY)) anchorRatio=Math.max(0.08,Math.min(0.88,+cfg.anchorY/100));
+  if(num(cfg.anchorX)) anchorXRatio=Math.max(0.05,Math.min(0.95,+cfg.anchorX/100));
+  if(num(cfg.lead)){
+    leadSec=Math.max(0,Math.min(1.5,+cfg.lead));
+    document.getElementById('leadRange').value=leadSec;
+    document.getElementById('leadVal').textContent=leadSec.toFixed(2)+'s';
+    localStorage.setItem('v03.lead',leadSec);
+  }
+  if(num(cfg.sens)){
+    sens=Math.max(0,Math.min(1,+cfg.sens/100));
+    document.getElementById('sensRange').value=Math.round(sens*100);
+    document.getElementById('sensVal').textContent=Math.round(sens*100);
+    localStorage.setItem('v06.sens',sens);
+  }
+  if(typeof cfg.predict==='boolean'){
+    predOn=cfg.predict; document.getElementById('predCheck').checked=predOn;
+    localStorage.setItem('v03.pred',predOn?'1':'0');
+    if(!predOn && actualPos>=0){ predPos=actualPos; goalF=-1; }
+  }
+  let mergeChanged=false;
+  if(typeof cfg.mergeShort==='boolean'){
+    mergeChanged=(mergeShort!==cfg.mergeShort);
+    mergeShort=cfg.mergeShort;
+    document.getElementById('mergeCheck').checked=mergeShort;
+    localStorage.setItem('v03.merge',mergeShort?'1':'0');
+  }
+  if(typeof cfg.highlight==='boolean') setHlStyle(cfg.highlight);
+  if(typeof cfg.autoReconnect==='boolean'){
+    autoReconnect=cfg.autoReconnect;
+    document.getElementById('autoRecCheck').checked=autoReconnect;
+    localStorage.setItem('v09.autorec',autoReconnect?'1':'0');
+  }
+  if(cfg.pad && typeof cfg.pad==='object'){
+    const q=cfg.pad;
+    if(typeof q.on==='boolean') padOn=q.on;
+    if(isFinite(+q.tapChars))  padTapChars  = Math.max(1,Math.min(120,+q.tapChars));
+    if(isFinite(+q.holdFactor))padHoldFactor= Math.max(1.5,Math.min(6,+q.holdFactor));
+    if(isFinite(+q.volStep))   padVolStep   = Math.max(0.05,Math.min(1,+q.volStep));
+    if(isFinite(+q.holdMs))    padHoldMs    = Math.max(150,Math.min(800,+q.holdMs));
+    if(q.follow==='offline'||q.follow==='online') padFollowKind=q.follow;
+    if(Array.isArray(q.bindings)){
+      const defs=padDefaultBindings();
+      padBindings=defs.map((def,i)=>Object.assign({},def,{enabled:false},q.bindings[i]||{}));
+    }
+    padSyncUi();
+  }
+  if(typeof cfg.showAnchorLine==='boolean'){
+    showAnchorLine=cfg.showAnchorLine;
+    document.getElementById('showAnchor').checked=showAnchorLine;
+    localStorage.setItem('v02.anchorLine',showAnchorLine?'1':'0');
+    document.getElementById('readLine').classList.toggle('hide',!showAnchorLine);
+    document.getElementById('anchorTick').classList.toggle('hide',!showAnchorLine);
+  }
+  if(mergeChanged && fullText) rebuildLines();      // 拼接方式变了要重排行
+  syncAnchorInputs();
+  applyAnchor(readPos>=0?readPos:-1);               // 重排后回到当前阅读位置
+}
+function importConfigFile(file){
+  const r=new FileReader();
+  r.onload=()=>{
+    try{
+      applyConfig(JSON.parse(String(r.result)));
+      toast('配置已导入并应用');
+    }catch(err){
+      toast('导入失败：'+(err&&err.message||err),5000);
+    }
+  };
+  r.onerror=()=>toast('读取文件失败');
+  r.readAsText(file,'utf-8');
+}
+{ const eb=document.getElementById('expCfgBtn'); if(eb) eb.onclick=exportConfig;
+  const ib=document.getElementById('impCfgBtn');
+  const ci=document.getElementById('cfgInput');
+  if(ib && ci){
+    ib.onclick=()=>ci.click();
+    ci.onchange=e=>{ const f=e.target.files&&e.target.files[0]; if(f) importConfigFile(f); e.target.value=''; };
+  }
+}
+
+/* 恢复设置 */
+(function restore(){
+  const f=localStorage.getItem('font'); if(f) setFontSelect(f);
+  const s=localStorage.getItem('size'); if(s){ document.getElementById('sizeRange').value=s; }
+  const l=localStorage.getItem('lh'); if(l){ document.getElementById('lhRange').value=l; }
+  const sp=localStorage.getItem('speed');
+  if(sp!==null){
+    let v=+sp;
+    if(!isFinite(v)) v=2.5;
+    if(v>4) v=v/18;                 // 兼容旧版：以前存的是 px/秒（10~400）
+    setSpeed(v,'num');
+  }else setSpeed(2.5,'num');
+  const ay=localStorage.getItem('v02.anchorY'); if(ay!==null){ anchorRatio=Math.max(0.08,Math.min(0.88,+ay/100)); }
+  const ax=localStorage.getItem('v02.anchorX'); if(ax!==null){ anchorXRatio=Math.max(0.05,Math.min(0.95,+ax/100)); }
+  const al=localStorage.getItem('v02.anchorLine'); if(al!==null){ showAnchorLine=(al==='1'); document.getElementById('showAnchor').checked=showAnchorLine; }
+  const pr=localStorage.getItem('v03.pred'); if(pr!==null){ predOn=(pr==='1'); document.getElementById('predCheck').checked=predOn; }
+  const ld=localStorage.getItem('v03.lead'); if(ld!==null){ leadSec=Math.max(0,Math.min(1.5,+ld)); document.getElementById('leadRange').value=leadSec; document.getElementById('leadVal').textContent=leadSec.toFixed(2)+'s'; }
+  const mg=localStorage.getItem('v03.merge'); if(mg!==null){ mergeShort=(mg==='1'); document.getElementById('mergeCheck').checked=mergeShort; }
+  const sn=localStorage.getItem('v06.sens'); if(sn!==null){ sens=Math.max(0,Math.min(1,+sn)); }
+  document.getElementById('sensRange').value=Math.round(sens*100);
+  document.getElementById('sensVal').textContent=Math.round(sens*100);
+  const hlv=localStorage.getItem('v03.hl'); if(hlv!==null) setHlStyle(hlv==='1');
+  const ar=localStorage.getItem('v09.autorec'); if(ar!==null){ autoReconnect=(ar==='1'); document.getElementById('autoRecCheck').checked=autoReconnect; }
+  /* v0.9：file:// 打开时的提示条 */
+  if(location.protocol==='file:' && localStorage.getItem('v09.hideFileWarn')!=='1'){
+    document.body.classList.add('file-mode');
+  }
+  applyFont(); applySize(); applyLh(); applySpeed();
+  syncAnchorInputs(); applyAnchor(-1);
+  /* v0.15：恢复翻页器设置 */
+  padLoad();
+  /* v0.14：启动即载入默认演示稿（同目录的 docx，取不到用内置副本） */
+  loadDefaultDoc();
+})();
+</script>
+</body>
+</html>

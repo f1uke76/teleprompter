@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能提词器 v0.1 · Teleprompter</title>
+<style>
+  :root{
+    --bg:#000; --fg:#fff; --accent:#3da9fc; --panel:#16181d; --panel2:#22262e; --line:rgba(61,169,252,.35);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;font-family:"微软雅黑","Microsoft YaHei",sans-serif;background:var(--panel);color:var(--fg);}
+  #app{display:flex;flex-direction:column;height:100vh;overflow:hidden;}
+
+  /* 顶部工具栏 */
+  #toolbar{
+    display:flex;flex-wrap:wrap;gap:8px;align-items:center;
+    padding:8px 12px;background:var(--panel2);border-bottom:1px solid #333;
+  }
+  #toolbar .grp{display:flex;align-items:center;gap:6px;padding:2px 8px;background:var(--panel);border-radius:8px;}
+  #toolbar label{font-size:12px;opacity:.8;}
+  button,select,input[type=file]::file-selector-button{
+    background:var(--accent);color:#001; border:none;border-radius:6px;
+    padding:6px 12px;font-size:13px;cursor:pointer;font-weight:600;
+  }
+  button.ghost{background:var(--panel);color:var(--fg);border:1px solid #444;}
+  button.danger{background:#e5484d;color:#fff;}
+  button.on{background:#2e9e5b;color:#fff;}
+  select{background:var(--panel);color:var(--fg);border:1px solid #444;font-weight:400;}
+  input[type=range]{width:120px;vertical-align:middle;}
+  .val{font-size:12px;min-width:38px;text-align:center;opacity:.85;}
+
+  /* 舞台 */
+  #stage{position:relative;flex:1;background:var(--bg);overflow:hidden;}
+  #scriptWrap{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;scroll-behavior:auto;}
+  #script{
+    white-space:pre-wrap;word-break:break-word;line-height:1.5;
+    padding:35vh 8vw 65vh 8vw;color:var(--fg);font-size:48px;
+  }
+  #hlOverlay{position:absolute;top:0;left:0;overflow:visible;pointer-events:none;}
+  #hlOverlay .hl{position:absolute;background:rgba(255,196,0,.55);border-radius:5px;box-shadow:0 0 10px rgba(255,196,0,.35);}
+  #hlOverlay .hl-next{position:absolute;background:rgba(255,214,0,.16);border-radius:5px;}
+  #readLine{
+    position:absolute;left:0;right:0;top:35%;height:0;border-top:2px solid var(--line);
+    box-shadow:0 0 12px var(--line);pointer-events:none;
+  }
+  #readLine::after{content:"";position:absolute;left:0;right:0;top:8px;height:2px;background:var(--line);opacity:.5;}
+
+  /* 状态条 */
+  #status{
+    display:flex;gap:14px;align-items:center;padding:5px 12px;font-size:12px;
+    background:var(--panel2);border-top:1px solid #333;opacity:.9;
+  }
+  #status .tag{padding:2px 8px;border-radius:10px;background:var(--panel);}
+  #status .tag.live{background:#2e9e5b;}
+  #status .tag.off{background:#e5484d;}
+  #status .tag.exp{background:#c08a2d;}
+  #lastText{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.8;}
+
+  /* 弹窗 */
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:50;}
+  .modal.show{display:flex;}
+  .modal .box{background:var(--panel2);border:1px solid #444;border-radius:12px;padding:20px;width:min(560px,92vw);max-height:86vh;overflow:auto;}
+  .modal h3{margin:0 0 12px;}
+  .modal textarea{width:100%;height:220px;background:var(--panel);color:var(--fg);border:1px solid #444;border-radius:8px;padding:10px;font-size:15px;line-height:1.5;resize:vertical;}
+  .modal .row{display:flex;gap:8px;justify-content:flex-end;margin-top:12px;}
+  .hint{font-size:12px;opacity:.7;line-height:1.6;}
+  .drop{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+    background:rgba(61,169,252,.15);border:3px dashed var(--accent);font-size:22px;z-index:40;pointer-events:none;}
+  .drop.show{display:flex;}
+
+  /* 演示模式 */
+  button.demo{background:#f0b429;color:#1b1300;}
+  #demoBar{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);display:none;gap:8px;
+    padding:8px 10px;background:rgba(18,20,26,.86);border:1px solid #3a3f4b;border-radius:999px;
+    box-shadow:0 8px 28px rgba(0,0,0,.45);z-index:30;backdrop-filter:blur(6px);
+    max-width:96vw;flex-wrap:wrap;justify-content:center;}
+  #demoBar.show{display:flex;}
+  #demoBar button{padding:7px 14px;font-size:13px;background:var(--panel);color:var(--fg);border:1px solid #4a5060;}
+  #demoBar button#demoExitBtn{background:#e5484d;color:#fff;border-color:#e5484d;}
+  #demoStatus{color:#cfd6e4;font-size:13px;padding:0 6px 0 4px;display:flex;align-items:center;gap:6px;white-space:nowrap;}
+  #demoStatus::before{content:"";width:8px;height:8px;border-radius:50%;background:#8a93a6;flex:none;}
+  #demoStatus.live::before{background:#2e9e5b;box-shadow:0 0 8px #2e9e5b;}
+  #demoStatus.warn::before{background:#e5484d;box-shadow:0 0 8px #e5484d;}
+  #toast{position:absolute;left:50%;top:16px;transform:translateX(-50%);z-index:35;
+    background:rgba(18,20,26,.92);border:1px solid #3a3f4b;color:#eee;padding:9px 18px;border-radius:14px;
+    font-size:13px;line-height:1.55;opacity:0;transition:opacity .3s;pointer-events:none;white-space:normal;
+    max-width:min(90vw,760px);text-align:center;}
+  #toast.show{opacity:1;}
+
+  /* ===== v0.1 阅读锚点 ===== */
+  #readLine{transition:top .18s ease;}
+  #readLine::before{content:"";position:absolute;left:0;top:-5px;width:0;height:0;
+    border-left:9px solid var(--line);border-top:6px solid transparent;border-bottom:6px solid transparent;}
+  #readLine.hide{display:none;}
+  #anchorPanel{
+    position:absolute;right:14px;top:14px;z-index:36;width:262px;
+    background:rgba(18,20,26,.92);border:1px solid #3a3f4b;border-radius:12px;padding:12px 14px 10px;
+    box-shadow:0 10px 30px rgba(0,0,0,.5);backdrop-filter:blur(8px);display:none;
+  }
+  #anchorPanel.show{display:block;}
+  #anchorPanel .hd{display:flex;align-items:center;justify-content:space-between;font-size:13px;font-weight:700;margin-bottom:10px;color:#fff;}
+  #anchorPanel .hd .badge{font-size:10px;font-weight:600;color:#1b1300;background:#f0b429;padding:1px 6px;border-radius:999px;margin-left:6px;}
+  #anchorPanel .hd .x{background:none;border:none;color:#9aa3b5;font-size:18px;line-height:1;padding:0 2px;cursor:pointer;}
+  #anchorPanel .row{display:flex;align-items:center;gap:8px;margin:7px 0;}
+  #anchorPanel .row label{font-size:12px;color:#cfd6e4;width:30px;flex:none;}
+  #anchorPanel .row input[type=range]{flex:1;width:auto;}
+  #anchorPanel .row .v{font-size:11px;color:#9aa3b5;width:44px;text-align:right;flex:none;font-variant-numeric:tabular-nums;}
+  #anchorPanel .row.chk{gap:6px;margin-top:10px;}
+  #anchorPanel .row.chk label{width:auto;font-size:12px;color:#cfd6e4;}
+  #anchorPanel .tip{font-size:11px;color:#7f8798;line-height:1.5;margin-top:6px;}
+  #anchorPanel .tip kbd{background:#2a2f3a;border-radius:4px;padding:0 4px;font-family:inherit;font-size:10px;color:#cfd6e4;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="toolbar">
+    <div class="grp">
+      <button id="openBtn">打开文档</button>
+      <input type="file" id="fileInput" accept=".docx,.txt" hidden>
+      <button class="ghost" id="pasteBtn">粘贴文本</button>
+    </div>
+
+    <div class="grp">
+      <button id="demoBtn" class="demo">🎬 演示模式</button>
+    </div>
+
+    <div class="grp">
+      <button id="anchorBtn" class="ghost">⚓ 锚点位置</button>
+      <span class="val" style="opacity:.55">v0.1</span>
+    </div>
+
+    <div class="grp">
+      <label>字体</label>
+      <select id="fontSel">
+        <option>微软雅黑</option><option>黑体</option><option>宋体</option>
+        <option>楷体</option><option>仿宋</option><option>等线</option>
+        <option>SimSun</option><option>SimHei</option><option>KaiTi</option>
+        <option>Arial</option><option>Times New Roman</option><option>Verdana</option>
+        <option>Courier New</option><option>sans-serif</option>
+      </select>
+      <input type="text" id="fontCustom" placeholder="自定义字体名" style="width:110px;background:var(--panel);color:var(--fg);border:1px solid #444;border-radius:6px;padding:5px;">
+    </div>
+
+    <div class="grp">
+      <label>字号</label>
+      <input type="range" id="sizeRange" min="20" max="180" value="48">
+      <span class="val" id="sizeVal">48</span>
+    </div>
+
+    <div class="grp">
+      <label>行距</label>
+      <input type="range" id="lhRange" min="1.1" max="2.4" step="0.1" value="1.5">
+      <span class="val" id="lhVal">1.5</span>
+    </div>
+
+    <div class="grp">
+      <label>自动滚动</label>
+      <button id="autoBtn" class="ghost">▶ 开始</button>
+      <input type="range" id="speedRange" min="10" max="400" value="80">
+      <span class="val" id="speedVal">80</span>
+    </div>
+
+    <div class="grp">
+      <button id="micBtn" class="ghost">🎤 语音跟读(在线)</button>
+      <button id="offlineBtn" class="ghost">🎧 离线识别</button>
+    </div>
+
+    <div class="grp">
+      <button id="mirrorBtn" class="ghost">⇋ 镜像</button>
+      <button id="fsBtn" class="ghost">⛶ 全屏</button>
+      <button id="resetBtn" class="ghost">↺ 复位</button>
+      <button id="helpBtn" class="ghost">?</button>
+    </div>
+  </div>
+
+  <div id="stage">
+    <div id="scriptWrap">
+      <div id="script">请点击左上角「打开文档」选择 Word(.docx) 或 文本(.txt) 文件，或点「粘贴文本」直接输入讲稿。\n\n支持的语音功能：\n• 在线识别（默认）：用浏览器自带语音识别，中文准确，需联网 + 用 Chrome / Edge 打开。\n• 离线识别（备选）：首次使用会从网络下载中文模型（约 40MB），之后可断网使用。\n\n朗读时，讲稿会自动滚动到您正在读的位置。</div>
+      <div id="hlOverlay"></div>
+    </div>
+    <div id="readLine"></div>
+    <div class="drop" id="drop">松开以加载文档</div>
+    <div id="demoBar">
+      <span id="demoStatus">待机</span>
+      <button id="demoScrollBtn">⏸ 暂停滚动</button>
+      <button id="demoMicBtn">🎤 语音跟读</button>
+      <button id="demoSimBtn">🎬 模拟跟读</button>
+      <button id="demoAnchorBtn">⚓ 锚点</button>
+      <button id="demoExitBtn">✕ 退出演示</button>
+    </div>
+    <div id="toast"></div>
+
+    <div id="anchorPanel">
+      <div class="hd">
+        <span>⚓ 阅读锚点<span class="badge">v0.1</span></span>
+        <button class="x" id="anchorClose">×</button>
+      </div>
+      <div class="row">
+        <label>上下</label>
+        <input type="range" id="anchorYRange" min="8" max="88" step="1" value="35">
+        <span class="v" id="anchorYVal">35%</span>
+      </div>
+      <div class="row">
+        <label>左右</label>
+        <input type="range" id="anchorXRange" min="-12" max="12" step="0.5" value="0">
+        <span class="v" id="anchorXVal">0</span>
+      </div>
+      <div class="row chk">
+        <input type="checkbox" id="showAnchor" checked>
+        <label for="showAnchor">显示基准线</label>
+      </div>
+      <div class="tip">高亮词固定停在这条线上，整篇文段平滑向前滚动。<br><kbd>Alt</kbd>+<kbd>↑</kbd><kbd>↓</kbd> 调上下 · <kbd>Alt</kbd>+<kbd>←</kbd><kbd>→</kbd> 调左右</div>
+    </div>
+  </div>
+
+  <div id="status">
+    <span class="tag" id="modeTag">待机</span>
+    <span class="val" id="progVal">进度 0%</span>
+    <span id="lastText">—</span>
+  </div>
+</div>
+
+<!-- 粘贴弹窗 -->
+<div class="modal" id="pasteModal">
+  <div class="box">
+    <h3>粘贴 / 输入讲稿</h3>
+    <textarea id="pasteArea" placeholder="在此粘贴或输入讲稿文本…"></textarea>
+    <div class="row">
+      <button class="ghost" id="pasteCancel">取消</button>
+      <button id="pasteOk">载入</button>
+    </div>
+  </div>
+</div>
+
+<!-- 帮助弹窗 -->
+<div class="modal" id="helpModal">
+  <div class="box">
+    <h3>使用说明</h3>
+    <p class="hint">
+      <b>载入讲稿：</b>「打开文档」支持 .docx 与 .txt；也可「粘贴文本」或直接把文件拖入窗口。<br><br>
+      <b>显示调节：</b>顶部可切换字体、字号、行距；「镜像」用于提词器反光板（左右翻转）。<br><br>
+      <b>滚动控制：</b>「自动滚动」按设定速度匀速上滚；也可鼠标滚轮 / ↑↓ 键手动滚动；空格键开始/暂停自动滚动。<br><br>
+      <b>阅读锚点（v0.1 新增）：</b>点顶部「⚓ 锚点位置」可在右上角打开面板，用「上下」把基准线移到你觉得舒服的高度（默认 35%），用「左右」整体移动文字列（适合反光板/侧屏）。<b>朗读时，当前高亮的词会一直停在这条基准线上不再上下乱跳，整篇文字平滑地向上流动。</b>可用 <b>Alt+↑↓←→</b> 微调（按住 Shift 步长更大），设置会自动记住。<br><br>
+      <b>语音跟读（核心）：</b>点「🎤 语音跟读」并允许麦克风权限，开始朗读后，讲稿会自动滚动到您正读到的位置（蓝色基准线处）；<b>当前读到的词会高亮，下一个词淡色提示</b>，逐字逐词跟随。<br><br>
+      <b>麦克风说明：</b>在线识别需允许麦克风权限并保持联网。若在应用内预览窗口中使用，浏览器可能拦截麦克风，请用 Chrome/Edge <b>直接打开 index-v0.1.html</b>；Chrome 的语音服务在部分网络下不可用，可改用 Edge。<br><br>
+      <b>模拟跟读：</b>演示模式底部有「🎬 模拟跟读」，无需麦克风即可演示逐词高亮与自动跟滚，用于环境受限时验证效果。<br><br>
+      <b>离线识别（备选）：</b>点「🎧 离线识别」首次会从网络下载约 40MB 中文模型，之后可断网使用，适合现场无网环境。<br><br>
+      <b>快捷键：</b>空格=自动滚动开关 · ↑/↓=手动滚动 · F=全屏 · R=复位 · M=镜像。<br><br>
+      <b>分享：</b>本程序是单个 index-v0.1.html 文件，直接发给别人，用 Chrome / Edge 双击打开即可使用，无需安装。如需打包成 .exe，可后续用 Electron 封装（告诉我即可帮你加）。
+    </p>
+    <div class="row"><button id="helpClose">知道了</button></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ============ 状态 ============ */
+const scriptWrap=document.getElementById('scriptWrap');
+const script=document.getElementById('script');
+const hlOverlay=document.getElementById('hlOverlay');
+const stage=document.getElementById('stage');
+
+let fullText='';
+let scriptNode=script.firstChild;
+let normFull='';            // 去除空白与标点的归一化文本
+let normMap=[];             // normMap[i] = 该归一化字符在原文本中的索引
+let searchFrom=0;           // 字符级模糊匹配的搜索起点（归一化索引）
+
+let scriptTokens=[];        // 词元：{s,e,t} 中文按字、英文/数字按词
+let tokCursor=0;            // 下一个预期词元下标（同步游标）
+let lastHLKey=-1;           // 上一次高亮的词元，避免重复重排
+let spokenText='';          // 累计识别文本
+let pendingT=null;          // 待处理的识别文本（rAF 节流）
+let rafScheduled=false;
+let demoActive=false;       // 是否处于演示模式
+let simRunning=false, simTimer=null, simTok=0;   // 模拟跟读（无需麦克风）
+
+/* 演示用课文：赵宗成、朱明元《观潮》 */
+const DEMO_TEXT =
+"钱塘江大潮，自古以来被称为天下奇观。\n\n" +
+"农历八月十八是一年一度的观潮日。这一天早上，我们来到了海宁市的盐官镇，据说这里是观潮最好的地方。我们随着观潮的人群，登上了海塘大堤。宽阔的钱塘江横卧在眼前。江面很平静，越往东越宽，在雨后的阳光下，笼罩着一层蒙蒙的薄雾。镇海古塔、中山亭和观潮台屹立在江边。远处，几座小山在云雾中若隐若现。江潮还没有来，海塘大堤上早已人山人海。大家昂首东望，等着，盼着。\n\n" +
+"午后一点左右，从远处传来隆隆的响声，好像闷雷滚动。顿时人声鼎沸，有人告诉我们，潮来了！我们踮着脚往东望去，江面还是风平浪静，看不出有什么变化。过了一会儿，响声越来越大，只见东边水天相接的地方出现了一条白线，人群又沸腾起来。\n\n" +
+"那条白线很快地向我们移来，逐渐拉长，变粗，横贯江面。再近些，只见白浪翻滚，形成一道两丈多高的白色城墙。浪潮越来越近，犹如千万匹白色战马齐头并进，浩浩荡荡地飞奔而来；那声音如同山崩地裂，好像大地都被震得颤动起来。\n\n" +
+"霎时，潮头奔腾西去，可是余波还在漫天卷地般涌来，江面上依旧风号浪吼。过了好久，钱塘江才恢复了平静。看看堤下，江水已经涨了两丈来高了。";
+
+let autoScroll=false;
+let following=false;        // 语音跟读中
+let speed=80;               // px/秒
+let mirror=false;
+
+/* ===== v0.1 阅读锚点 + 平滑滚动 ===== */
+let anchorRatio=0.35;       // 锚点纵向位置（viewport 高度比例）
+let anchorShift=0;          // 文本列横向偏移（% 宽度，正=右）
+let showAnchorLine=true;
+let scrollTarget=null;      // 平滑滚动目标 scrollTop
+let lastAnchorTok=-1;       // 最近一次锚定的词元（换锚点/改窗口后重新定位）
+
+/* ============ 工具 ============ */
+const isWordChar=ch=>/\p{L}|\p{N}/u.test(ch);
+function decodeXml(s){return s.replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,'&');}
+function removePunct(s){return s.replace(/[\p{P}\p{S}]/gu,'');}
+
+/* ============ docx 解析（零依赖） ============ */
+async function inflateRaw(bytes){
+  const ds=new DecompressionStream('deflate-raw');
+  const w=ds.writable.getWriter(); w.write(bytes); w.close();
+  const r=ds.readable.getReader();
+  const chunks=[]; let total=0;
+  while(true){const {done,value}=await r.read(); if(done)break; chunks.push(value); total+=value.length;}
+  const out=new Uint8Array(total); let off=0;
+  for(const c of chunks){out.set(c,off); off+=c.length;}
+  return out;
+}
+async function unzip(buffer){
+  const view=new DataView(buffer);
+  const bytes=new Uint8Array(buffer);
+  let eocd=-1;
+  for(let i=bytes.length-22;i>=0;i--){ if(view.getUint32(i,true)===0x06054b50){eocd=i;break;} }
+  if(eocd<0) throw new Error('不是有效的 zip/docx 文件');
+  const total=view.getUint16(eocd+10,true);
+  const cdOffset=view.getUint32(eocd+16,true);
+  const files=new Map(); let p=cdOffset;
+  for(let n=0;n<total;n++){
+    if(view.getUint32(p,true)!==0x02014b50) break;
+    const method=view.getUint16(p+10,true);
+    const compSize=view.getUint32(p+20,true);
+    const nameLen=view.getUint16(p+28,true);
+    const extraLen=view.getUint16(p+30,true);
+    const commentLen=view.getUint16(p+32,true);
+    const localOffset=view.getUint32(p+42,true);
+    const name=new TextDecoder('utf-8').decode(bytes.subarray(p+46,p+46+nameLen));
+    const lNameLen=view.getUint16(localOffset+26,true);
+    const lExtraLen=view.getUint16(localOffset+28,true);
+    const dataStart=localOffset+30+lNameLen+lExtraLen;
+    const comp=bytes.subarray(dataStart,dataStart+compSize);
+    let data;
+    if(method===0) data=comp;
+    else if(method===8) data=await inflateRaw(comp);
+    else throw new Error('不支持的压缩方式: '+method);
+    files.set(name,data);
+    p+=46+nameLen+extraLen+commentLen;
+  }
+  return files;
+}
+function docxText(xmlBytes){
+  const xml=new TextDecoder('utf-8').decode(xmlBytes);
+  // 1) 结构标记先转为换行/制表（此时内容仍为实体编码，不会被当作标签）
+  let s=xml
+    .replace(/<w:br\/>/g,'\n')
+    .replace(/<w:tab\/>/g,'\t')
+    .replace(/<\/w:p>/g,'\n');
+  // 2) 去掉所有剩余标签（含 <w:t>、</w:t>），保留其内部的实体编码文本
+  s=s.replace(/<[^>]+>/g,'');
+  // 3) 最后统一解码 XML 实体（此时 < > & 还原，但已不在标签剥离阶段）
+  s=decodeXml(s).replace(/\r/g,'');
+  s=s.replace(/\n{3,}/g,'\n\n');
+  return s.trim();
+}
+async function loadDocx(arrayBuffer){
+  const files=await unzip(arrayBuffer);
+  let xml=files.get('word/document.xml');
+  if(!xml){ for(const [k,v] of files){ if(k.endsWith('document.xml')){xml=v;break;} } }
+  if(!xml) throw new Error('未在 docx 中找到 document.xml');
+  return docxText(xml);
+}
+
+/* ============ 载入讲稿 ============ */
+async function loadFile(file){
+  try{
+    const buf=await file.arrayBuffer();
+    let text;
+    if(file.name.toLowerCase().endsWith('.txt')){
+      text=new TextDecoder('utf-8').decode(buf);
+    }else if(file.name.toLowerCase().endsWith('.docx')){
+      text=await loadDocx(buf);
+    }else{
+      alert('仅支持 .docx 与 .txt 文件'); return;
+    }
+    setScript(text);
+    setMode('已载入','');
+  }catch(e){
+    console.error(e);
+    alert('读取失败：'+e.message+'\n\n如果是 Word 文件，可尝试另存为 .docx 或用「粘贴文本」。');
+  }
+}
+function setScript(text){
+  fullText=text||'';
+  script.textContent=fullText;
+  scriptNode=script.firstChild;
+  buildNorm(fullText);
+  buildTokens(fullText);
+  searchFrom=0; tokCursor=0; lastHLKey=-1; spokenText='';
+  scrollTarget=null; lastAnchorTok=-1;
+  scriptWrap.scrollTop=0;
+  clearHl();
+  updateProgress();
+}
+function buildNorm(text){
+  normFull=''; normMap=[];
+  for(let i=0;i<text.length;i++){
+    if(isWordChar(text[i])){ normFull+=text[i].toLowerCase(); normMap.push(i); }
+  }
+}
+/* 词元切分：中日韩文字逐字，拉丁字母/数字连成词 */
+const CJK=/[\u3400-\u9fff\uf900-\ufaff]/;
+function buildTokens(text){
+  scriptTokens=[];
+  let i=0;
+  while(i<text.length){
+    const ch=text[i];
+    if(CJK.test(ch)){
+      scriptTokens.push({s:i,e:i+1,t:ch.toLowerCase()}); i++;
+    }else if(/[A-Za-z0-9]/.test(ch)){
+      let j=i+1;
+      while(j<text.length && /[A-Za-z0-9']/.test(text[j])) j++;
+      scriptTokens.push({s:i,e:j,t:text.slice(i,j).toLowerCase()}); i=j;
+    }else i++;
+  }
+}
+/* 把任意识别文本切成同样的词元序列（只取规整后的词） */
+function tokenizeStr(str){
+  const out=[]; let i=0;
+  while(i<str.length){
+    const ch=str[i];
+    if(CJK.test(ch)){ out.push(ch.toLowerCase()); i++; }
+    else if(/[A-Za-z0-9]/.test(ch)){
+      let j=i+1;
+      while(j<str.length && /[A-Za-z0-9']/.test(str[j])) j++;
+      out.push(str.slice(i,j).toLowerCase()); i=j;
+    }else i++;
+  }
+  return out;
+}
+function makeRange(start,end){
+  const r=document.createRange();
+  r.setStart(scriptNode, Math.max(0,Math.min(start,fullText.length)));
+  r.setEnd(scriptNode, Math.max(0,Math.min(end,fullText.length)));
+  return r;
+}
+
+/* ============ 滚动与高亮（v0.1：锚点固定 + 平滑滚动） ============ */
+/* 锚点的像素位置：高亮词会一直停在这条水平线上 */
+function anchorPx(){ return Math.round((scriptWrap.clientHeight||stage.clientHeight||1)*anchorRatio); }
+
+/* 按锚点比例重算上下/左右留白，保证首字与末字都能到达锚点 */
+function applyAnchor(keepTok){
+  const H=scriptWrap.clientHeight||stage.clientHeight||1;
+  const W=scriptWrap.clientWidth||stage.clientWidth||1;
+  const ay=anchorPx();
+  const base=Math.round(W*0.08);
+  const shift=Math.round(W*anchorShift/100);
+  const left=Math.max(0,Math.min(base*2,base+shift));
+  const right=base*2-left;                   // 总留白不变 → 文本列宽度恒定，只整体左右移动
+  script.style.paddingTop=ay+'px';
+  script.style.paddingBottom=Math.max(0,H-ay)+'px';
+  script.style.paddingLeft=left+'px';
+  script.style.paddingRight=right+'px';
+  const rl=document.getElementById('readLine');
+  rl.style.top=ay+'px';
+  rl.classList.toggle('hide',!showAnchorLine);
+  document.getElementById('anchorYVal').textContent=Math.round(anchorRatio*100)+'%';
+  document.getElementById('anchorXVal').textContent=(anchorShift>0?'+':'')+(Math.round(anchorShift*10)/10);
+  const t=(keepTok===undefined)?lastAnchorTok:keepTok;
+  if(t>=0) anchorToken(t,true);              // 换锚点后立刻归位，不跳字
+}
+/* 平滑滚动目标（immediate=true 立即跳转） */
+function setScrollTarget(t,immediate){
+  const max=Math.max(0,scriptWrap.scrollHeight-scriptWrap.clientHeight);
+  scrollTarget=Math.max(0,Math.min(max,t));
+  if(immediate){ scriptWrap.scrollTop=scrollTarget; scrollTarget=null; updateProgress(); }
+}
+/* 核心：把某个词元“钉”在锚点线上（词中心对齐基准线） */
+function anchorToken(idx,immediate){
+  const tok=scriptTokens[idx];
+  if(!tok) return;
+  lastAnchorTok=idx;
+  const rects=makeRange(tok.s,tok.e).getClientRects();
+  if(!rects||!rects.length) return;
+  const r=rects[0];
+  const cr=scriptWrap.getBoundingClientRect();
+  const centerY=r.top+r.height/2-cr.top+scriptWrap.scrollTop;
+  setScrollTarget(centerY-anchorPx(),immediate);
+}
+function scrollToChar(i){
+  const k=tokenIndexAtChar(i);
+  anchorToken(k>=0?k:0);
+}
+function clearHl(){hlOverlay.innerHTML='';}
+function pickHlRects(start,end,cls){
+  if(start<0||end<=start) return;
+  const range=makeRange(start,end);
+  const rects=range.getClientRects();
+  const cr=scriptWrap.getBoundingClientRect();
+  for(const r of rects){
+    if(r.width<1) continue;
+    const box=document.createElement('div');
+    box.className=cls;
+    box.style.left=(r.left-cr.left+scriptWrap.scrollLeft)+'px';
+    box.style.top=(r.top-cr.top+scriptWrap.scrollTop)+'px';
+    box.style.width=r.width+'px';
+    box.style.height=r.height+'px';
+    hlOverlay.appendChild(box);
+  }
+}
+/* 词级高亮：当前词强高亮，下一个词淡提示 */
+function highlightWord(idx){
+  clearHl();
+  const tok=scriptTokens[idx]; if(!tok) return;
+  const nx=scriptTokens[idx+1];
+  if(nx) pickHlRects(nx.s,nx.e,'hl-next');
+  pickHlRects(tok.s,tok.e,'hl');
+}
+function updateProgress(){
+  const max=scriptWrap.scrollHeight-scriptWrap.clientHeight;
+  const p=max>0?Math.round(scriptWrap.scrollTop/max*100):0;
+  document.getElementById('progVal').textContent='进度 '+p+'%';
+}
+
+/* ============ 语音同步匹配（词元级） ============ */
+function tokenIndexAtChar(ci){
+  let lo=0,hi=scriptTokens.length-1,ans=-1;
+  while(lo<=hi){ const mid=(lo+hi)>>1; const t=scriptTokens[mid]; if(t.s<=ci){ans=mid;lo=mid+1;} else hi=mid-1; }
+  return ans;
+}
+/* 在游标附近按“由长到短”的词数尝试对齐，抗个别错词 */
+/* 词元序列是否完全相等 */
+function matchAt(s,seq){
+  for(let k=0;k<seq.length;k++){
+    const tk=scriptTokens[s+k];
+    if(!tk||tk.t!==seq[k]) return false;
+  }
+  return true;
+}
+/* 长上下文对齐：长锚点优先，短锚点只许紧邻推进，杜绝“同字跨句乱跳” */
+function findTokenMatch(tToks){
+  const N=scriptTokens.length, L=tToks.length;
+  if(!N||!L) return null;
+
+  // 1) 长锚点（6~30 词）局部精确匹配
+  for(let m=Math.min(30,L);m>=6;m--){
+    const seq=tToks.slice(L-m);
+    const from=Math.max(0,tokCursor-m-4);
+    const to=Math.min(N-1,tokCursor+40);
+    let behind=-1;
+    for(let s=from;s+m-1<=to;s++){
+      if(matchAt(s,seq)){
+        if(s+m>tokCursor) return {s,m};   // 有前进，立即采用
+        behind=s;                          // 否则记录最靠后的匹配
+      }
+    }
+    if(behind>=0) return {s:behind,m};
+  }
+
+  // 2) 中锚点（3~5 词）局部精确匹配
+  for(let m=Math.min(5,L);m>=3;m--){
+    const seq=tToks.slice(L-m);
+    const from=Math.max(0,tokCursor-m-4);
+    const to=Math.min(N-1,tokCursor+40);
+    for(let s=from;s+m-1<=to;s++){ if(matchAt(s,seq)) return {s,m}; }
+  }
+
+  // 3) 单/双字：只允许紧邻前进（最多 +3 词），绝不跨句跳转
+  for(let m=Math.min(2,L);m>=1;m--){
+    const seq=tToks.slice(L-m);
+    for(let s=Math.max(0,tokCursor-1);s<=Math.min(N-1,tokCursor+3);s++){
+      if(matchAt(s,seq)) return {s,m};
+    }
+  }
+
+  // 4) 全局重同步：仅当连续 ≥10 词强匹配时才允许大跳（真正跳读/漏读）
+  if(L>=10){
+    for(let m=Math.min(24,L);m>=10;m--){
+      const seq=tToks.slice(L-m);
+      for(let s=Math.max(0,tokCursor);s+m-1<N;s++){ if(matchAt(s,seq)) return {s,m}; }
+      for(let s=0;s+m-1<N;s++){ if(matchAt(s,seq)) return {s,m}; }
+    }
+  }
+  return null;
+}
+/* 精确词匹配失败时，退回字符级模糊匹配 */
+function charFallback(transcript){
+  const t=removePunct((transcript||'').toLowerCase());
+  if(!t||!normFull) return null;
+  if(t.length<4) return null;               // 太短不做全局兜底，避免同字误跳
+  const anchor=t.slice(-10);
+  let idx=normFull.indexOf(anchor,Math.max(0,searchFrom-80));
+  if(idx<0) idx=normFull.indexOf(anchor);
+  if(idx<0) return null;
+  searchFrom=idx+anchor.length;
+  return normMap[idx];
+}
+function syncToTranscript(transcript){
+  const raw=(transcript||'');
+  if(!raw.trim()) return;
+  const tToks=tokenizeStr(raw);
+  let curTok=-1, matchedM=0;
+  if(tToks.length){
+    const best=findTokenMatch(tToks);
+    if(best){ curTok=best.s+best.m-1; matchedM=best.m; tokCursor=Math.max(tokCursor,best.s+best.m); }
+  }
+  if(curTok<0){
+    const ci=charFallback(raw);
+    if(ci!=null){
+      const k=tokenIndexAtChar(ci);
+      if(k>=0){ curTok=k; tokCursor=Math.max(tokCursor,k+1); }
+    }
+  }
+  if(curTok<0) return;
+  document.getElementById('lastText').textContent='识别：'+raw.slice(-60);
+  // 只允许前进；只有强匹配（≥10 词）才接受回退，避免“同字误跳”来回乱跳
+  if(curTok<lastHLKey-1 && matchedM<10) return;
+  if(curTok===lastHLKey) return;           // 同一个词不重复重排
+  lastHLKey=curTok;
+  const tok=scriptTokens[curTok];
+  if(!tok) return;
+  anchorToken(curTok);
+  highlightWord(curTok);
+}
+/* rAF 节流：每次只处理最新一帧的识别结果，避免高频识别导致的重排 */
+function enqueueTranscript(txt){
+  pendingT=txt;
+  if(!rafScheduled){ rafScheduled=true; requestAnimationFrame(processPending); }
+}
+function processPending(){
+  rafScheduled=false;
+  if(pendingT!=null){ const t=pendingT; pendingT=null; syncToTranscript(t); }
+}
+
+/* ============ 在线语音识别（Web Speech API） ============ */
+let recg=null,recRunning=false,recRestartTimer=null,recRestartDelay=300;
+let speechStarting=false,netErrCount=0;
+
+function setDemoStatus(txt,cls){
+  const el=document.getElementById('demoStatus');
+  if(!el) return;
+  el.textContent=txt;
+  el.className=cls||'';
+}
+async function startOnline(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){ toast('此浏览器不支持在线语音识别，请用 Chrome / Edge 打开本文件'); setDemoStatus('浏览器不支持','warn'); return; }
+  if(recRunning||speechStarting) return;
+  if(simRunning) stopSimFollow();
+  speechStarting=true;
+  setDemoStatus('请求麦克风…','');
+  { const mb=document.getElementById('micBtn'); if(mb) mb.textContent='🎤 请求中…';
+    const dmb=document.getElementById('demoMicBtn'); if(dmb) dmb.textContent='🎤 请求中…'; }
+  /* 先预请求麦克风：权限/设备问题能立刻给出明确提示，而不是静默失败 */
+  try{
+    if(navigator.mediaDevices && navigator.mediaDevices.getUserMedia){
+      const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+      stream.getTracks().forEach(t=>t.stop());
+    }
+  }catch(err){
+    speechStarting=false;
+    { const mb=document.getElementById('micBtn'); if(mb) mb.textContent='🎤 语音跟读(在线)';
+      const dmb=document.getElementById('demoMicBtn'); if(dmb) dmb.textContent='🎤 语音跟读'; }
+    const name=(err&&err.name)||'';
+    if(name==='NotAllowedError'||name==='SecurityError'){
+      toast('麦克风被拒绝：请允许麦克风权限；若在内嵌预览窗口里，请用 Chrome/Edge 直接打开 index-v0.1.html 再试');
+      setDemoStatus('麦克风被拒','warn');
+    }else if(name==='NotFoundError'){
+      toast('未检测到麦克风设备，请连接麦克风后重试'); setDemoStatus('无麦克风','warn');
+    }else{
+      toast('无法访问麦克风：'+(name||(err&&err.message)||'未知错误')); setDemoStatus('麦克风异常','warn');
+    }
+    return;
+  }
+  speechStarting=false;
+  recg=new SR();
+  recg.lang='zh-CN';
+  recg.continuous=true;
+  recg.interimResults=true;
+  recg.maxAlternatives=1;
+  recg.onstart=()=>{ setDemoStatus('识别中…','live'); };
+  recg.onresult=e=>{
+    let full='';
+    for(let i=0;i<e.results.length;i++) full+=e.results[i][0].transcript;
+    if(full){ spokenText=full; recRestartDelay=300; netErrCount=0; setDemoStatus('识别中…','live'); enqueueTranscript(full); }
+  };
+  recg.onerror=e=>{
+    const code=e.error; console.warn('speech error',code);
+    if(code==='not-allowed'||code==='service-not-allowed'){ toast('麦克风权限被拒绝或被系统禁用'); setDemoStatus('权限被拒','warn'); stopOnline(true); return; }
+    if(code==='audio-capture'){ toast('未检测到可用的麦克风'); setDemoStatus('无麦克风','warn'); stopOnline(true); return; }
+    if(code==='network'){
+      netErrCount++;
+      if(netErrCount>=2){ toast('在线识别联网失败：Chrome 的语音服务在当前网络可能不可用，建议改用 Edge，或点「模拟跟读」查看高亮效果'); setDemoStatus('网络失败','warn'); stopOnline(true); }
+      return;
+    }
+    /* no-speech / aborted：交给 onend 自动重启 */
+  };
+  recg.onend=()=>{
+    if(!recRunning) return;
+    recRestartDelay=Math.min(Math.round(recRestartDelay*1.5),3000);
+    clearTimeout(recRestartTimer);
+    recRestartTimer=setTimeout(()=>{ if(recRunning){ try{recg.start();}catch(_){} } },recRestartDelay);
+  };
+  tokCursor=0; searchFrom=0; lastHLKey=-1; spokenText=''; pendingT=null; netErrCount=0;
+  scrollTarget=null; lastAnchorTok=-1; scriptWrap.scrollTop=0;
+  recRunning=true; following=true; autoScroll=false;
+  { const ds=document.getElementById('demoScrollBtn'); if(ds) ds.textContent='▶ 继续滚动';
+    const ab2=document.getElementById('autoBtn'); if(ab2){ ab2.classList.remove('on'); ab2.textContent='▶ 开始'; } }
+  try{ recg.start(); }catch(e){ console.warn(e); toast('启动识别失败：'+(e.message||e)); stopOnline(true); return; }
+  setMode('在线跟读中','live');
+  setDemoStatus('识别中…','live');
+  document.getElementById('micBtn').classList.add('on');
+  document.getElementById('micBtn').textContent='🎤 停止跟读';
+  const dm=document.getElementById('demoMicBtn'); if(dm) dm.textContent='🎤 停止跟读';
+}
+function stopOnline(byError){
+  recRunning=false; following=false;
+  clearTimeout(recRestartTimer);
+  if(recg){ try{recg.stop();}catch(_){} }
+  setMode(byError?'识别被拒':'待机','');
+  const b=document.getElementById('micBtn'); if(b){ b.classList.remove('on'); b.textContent='🎤 语音跟读(在线)'; }
+  clearHl(); lastHLKey=-1;
+  const dm=document.getElementById('demoMicBtn'); if(dm) dm.textContent='🎤 语音跟读';
+  if(demoActive) setDemoStatus(simRunning?'模拟跟读中':'待机', simRunning?'live':'');
+}
+
+/* ============ 离线语音识别（vosk-browser，可选） ============ */
+let vosk=null, voskStop=null, voskRunning=false;
+async function startOffline(){
+  setMode('下载离线模型…','exp');
+  try{
+    if(!vosk){
+      const mod=await import('https://cdn.jsdelivr.net/npm/vosk-browser@0.0.8/dist/vosk.js');
+      const modelUrl=localStorage.getItem('voskModelUrl')||'https://alphacephei.com/vosk/models/vosk-model-small-cn-0.15.zip';
+      vosk=await mod.Model.create(modelUrl);
+    }
+    const rec=new vosk.KaldiRecognizer(16000);
+    rec.setWords(true);
+    tokCursor=0; searchFrom=0; lastHLKey=-1; spokenText=''; pendingT=null;
+    rec.on('partial',m=>{ if(m&&m.result&&m.result.partial) enqueueTranscript(m.result.partial); });
+    rec.on('result',m=>{ if(m&&m.result&&m.result.text) enqueueTranscript(m.result.text); });
+    const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+    const ac=new (window.AudioContext||window.webkitAudioContext)();
+    const src=ac.createMediaStreamSource(stream);
+    const proc=ac.createScriptProcessor(4096,1,1);
+    proc.onaudioprocess=e=>{ rec.acceptWaveform(e.inputBuffer.getChannelData(0)); };
+    src.connect(proc); proc.connect(ac.destination);
+    voskStop=()=>{ try{proc.disconnect();src.disconnect();stream.getTracks().forEach(t=>t.stop());ac.close();}catch(_){} };
+    searchFrom=0; voskRunning=true; following=true;
+    setMode('离线跟读中','live');
+    const b=document.getElementById('offlineBtn'); b.classList.add('on'); b.textContent='🎧 停止离线';
+  }catch(e){
+    console.error(e);
+    alert('离线识别启动失败：'+e.message+'\n\n可改为使用在线识别，或在帮助中配置 vosk 模型地址。');
+    setMode('待机','');
+  }
+}
+function stopOffline(){
+  voskRunning=false; following=false;
+  if(voskStop) voskStop();
+  setMode('待机','');
+  const b=document.getElementById('offlineBtn'); b.classList.remove('on'); b.textContent='🎧 离线识别';
+  clearHl(); lastHLKey=-1;
+}
+
+/* ============ UI 交互 ============ */
+function setMode(text,cls){
+  const t=document.getElementById('modeTag');
+  t.textContent=text; t.className='tag'+(cls?(' '+cls):'');
+}
+function applyFont(){
+  const f=document.getElementById('fontCustom').value.trim()||document.getElementById('fontSel').value;
+  script.style.fontFamily=f;
+  localStorage.setItem('font',f);
+}
+function applySize(){ const v=+document.getElementById('sizeRange').value; script.style.fontSize=v+'px'; document.getElementById('sizeVal').textContent=v; localStorage.setItem('size',v); applyAnchor(); }
+function applyLh(){ const v=+document.getElementById('lhRange').value; script.style.lineHeight=v; document.getElementById('lhVal').textContent=v; localStorage.setItem('lh',v); applyAnchor(); }
+function applySpeed(){ speed=+document.getElementById('speedRange').value; document.getElementById('speedVal').textContent=speed; localStorage.setItem('speed',speed); }
+function toggleMirror(){ mirror=!mirror; script.style.transform=mirror?'scaleX(-1)':'none'; document.getElementById('mirrorBtn').classList.toggle('on',mirror); }
+
+/* ============ 演示模式 ============ */
+function toast(msg,ms=3000){
+  const el=document.getElementById('toast'); if(!el) return;
+  el.textContent=msg; el.classList.add('show');
+  clearTimeout(toast._t); toast._t=setTimeout(()=>el.classList.remove('show'),ms);
+}
+function startDemo(){
+  if(recRunning) stopOnline();
+  if(voskRunning) stopOffline();
+  if(simRunning) stopSimFollow();
+  setScript(DEMO_TEXT);
+  // 演示用舒适排版（仅本次，不写入用户偏好）
+  const sr=document.getElementById('sizeRange'); sr.value=56; script.style.fontSize='56px'; document.getElementById('sizeVal').textContent='56';
+  const lr=document.getElementById('lhRange'); lr.value=1.7; script.style.lineHeight='1.7'; document.getElementById('lhVal').textContent='1.7';
+  applyAnchor(-1);
+  scrollTarget=null; lastAnchorTok=-1; scriptWrap.scrollTop=0;
+  demoActive=true;
+  document.getElementById('demoBar').classList.add('show');
+  document.getElementById('demoScrollBtn').textContent='⏸ 暂停滚动';
+  document.getElementById('demoMicBtn').textContent='🎤 语音跟读';
+  document.getElementById('demoSimBtn').textContent='🎬 模拟跟读';
+  setDemoStatus('待机','');
+  // 全屏（可能被浏览器或嵌入式预览拦截，失败也不影响演示）
+  try{ if(!document.fullscreenElement && stage.requestFullscreen) stage.requestFullscreen().catch(()=>{}); }catch(_){}
+  autoScroll=true;
+  const ab=document.getElementById('autoBtn'); ab.classList.add('on'); ab.textContent='⏸ 暂停';
+  setMode('演示模式','live');
+  toast('演示模式：空格暂停/继续 · 点「语音跟读」用麦克风跟读，或用「模拟跟读」看逐词高亮 · Esc 退出');
+}
+function exitDemo(){
+  demoActive=false;
+  autoScroll=false;
+  if(simRunning) stopSimFollow();
+  const ab=document.getElementById('autoBtn'); ab.classList.remove('on'); ab.textContent='▶ 开始';
+  document.getElementById('demoBar').classList.remove('show');
+  if(recRunning) stopOnline();
+  if(voskRunning) stopOffline();
+  if(document.fullscreenElement){ try{ document.exitFullscreen().catch(()=>{}); }catch(_){} }
+  setMode('待机','');
+  setDemoStatus('待机','');
+}
+
+/* 模拟跟读：无需麦克风，按固定节奏逐词高亮并滚动，用于演示/环境受限时兜底 */
+function startSimFollow(){
+  if(simRunning) return;
+  if(recRunning) stopOnline();
+  if(voskRunning) stopOffline();
+  autoScroll=false;
+  simRunning=true; simTok=0; tokCursor=0; lastHLKey=-1;
+  scrollTarget=null; lastAnchorTok=-1; scriptWrap.scrollTop=0;
+  const pace=220; // ms/词，约 4~5 字/秒
+  const step=()=>{
+    if(!simRunning) return;
+    if(simTok>=scriptTokens.length){ stopSimFollow(); toast('模拟跟读结束'); return; }
+    const tok=scriptTokens[simTok];
+    tokCursor=simTok+1; lastHLKey=simTok;
+    anchorToken(simTok);
+    highlightWord(simTok);
+    document.getElementById('lastText').textContent='模拟跟读：'+fullText.slice(tok.s,Math.min(fullText.length,tok.s+24));
+    simTok++;
+    simTimer=setTimeout(step,pace);
+  };
+  step();
+  setMode('模拟跟读中','live');
+  setDemoStatus('模拟跟读中','live');
+  const sb=document.getElementById('demoSimBtn'); if(sb) sb.textContent='⏹ 停止模拟';
+  const ds=document.getElementById('demoScrollBtn'); if(ds) ds.textContent='▶ 继续滚动';
+  const ab=document.getElementById('autoBtn'); if(ab){ ab.classList.remove('on'); ab.textContent='▶ 开始'; }
+}
+function stopSimFollow(){
+  simRunning=false; clearTimeout(simTimer);
+  setMode(demoActive?'演示模式':'待机','');
+  if(demoActive) setDemoStatus('待机','');
+  clearHl(); lastHLKey=-1;
+  const sb=document.getElementById('demoSimBtn'); if(sb) sb.textContent='🎬 模拟跟读';
+}
+
+/* 自动滚动 + 平滑跟随循环 */
+let lastT=performance.now();
+function tick(now){
+  const dt=Math.min(0.05,(now-lastT)/1000); lastT=now;
+  /* 1) 平滑跟随：把高亮词缓动到锚点线，整篇自然向前流动 */
+  if(scrollTarget!=null){
+    const max=Math.max(0,scriptWrap.scrollHeight-scriptWrap.clientHeight);
+    const target=Math.min(scrollTarget,max);
+    const cur=scriptWrap.scrollTop, d=target-cur;
+    if(Math.abs(d)<=0.4){ scriptWrap.scrollTop=target; scrollTarget=null; }
+    else{ scriptWrap.scrollTop=cur+d*(1-Math.exp(-16*dt)); }
+    updateProgress();
+  }
+  /* 2) 匀速自动滚动（未跟读时） */
+  else if(autoScroll && !following && !recRunning && !voskRunning && !simRunning){
+    scriptWrap.scrollTop+=speed*dt;
+    if(scriptWrap.scrollTop>=scriptWrap.scrollHeight-scriptWrap.clientHeight-2){ autoScroll=false; document.getElementById('autoBtn').textContent='▶ 开始'; document.getElementById('autoBtn').classList.remove('on'); }
+    updateProgress();
+  }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+/* ============ 事件绑定 ============ */
+document.getElementById('openBtn').onclick=()=>document.getElementById('fileInput').click();
+document.getElementById('fileInput').onchange=e=>{ if(e.target.files[0]) loadFile(e.target.files[0]); };
+document.getElementById('pasteBtn').onclick=()=>{ document.getElementById('pasteModal').classList.add('show'); };
+document.getElementById('pasteCancel').onclick=()=>document.getElementById('pasteModal').classList.remove('show');
+document.getElementById('pasteOk').onclick=()=>{ const t=document.getElementById('pasteArea').value; if(t.trim()){ setScript(t); setMode('已载入',''); } document.getElementById('pasteModal').classList.remove('show'); };
+document.getElementById('helpBtn').onclick=()=>document.getElementById('helpModal').classList.add('show');
+document.getElementById('helpClose').onclick=()=>document.getElementById('helpModal').classList.remove('show');
+
+/* 演示模式事件 */
+document.getElementById('demoBtn').onclick=startDemo;
+document.getElementById('demoScrollBtn').onclick=()=>{
+  if(simRunning) stopSimFollow();
+  autoScroll=!autoScroll;
+  document.getElementById('demoScrollBtn').textContent=autoScroll?'⏸ 暂停滚动':'▶ 继续滚动';
+  const ab=document.getElementById('autoBtn'); ab.classList.toggle('on',autoScroll); ab.textContent=autoScroll?'⏸ 暂停':'▶ 开始';
+};
+document.getElementById('demoMicBtn').onclick=()=>{
+  if(recRunning) stopOnline(); else startOnline();
+  document.getElementById('demoMicBtn').textContent=recRunning?'🎤 停止跟读':'🎤 语音跟读';
+};
+document.getElementById('demoSimBtn').onclick=()=>{
+  if(simRunning) stopSimFollow(); else startSimFollow();
+};
+document.getElementById('demoExitBtn').onclick=exitDemo;
+document.addEventListener('fullscreenchange',()=>{
+  if(!document.fullscreenElement && demoActive){
+    demoActive=false; autoScroll=false;
+    document.getElementById('demoBar').classList.remove('show');
+    const ab=document.getElementById('autoBtn'); ab.classList.remove('on'); ab.textContent='▶ 开始';
+    setMode('待机','');
+  }
+});
+
+document.getElementById('fontSel').onchange=applyFont;
+document.getElementById('fontCustom').oninput=applyFont;
+document.getElementById('sizeRange').oninput=applySize;
+document.getElementById('lhRange').oninput=applyLh;
+document.getElementById('speedRange').oninput=applySpeed;
+
+document.getElementById('autoBtn').onclick=()=>{
+  if(following||recRunning||voskRunning){ alert('语音跟读进行中，已自动跟随，无需手动滚动。'); return; }
+  if(simRunning) stopSimFollow();
+  autoScroll=!autoScroll;
+  const b=document.getElementById('autoBtn');
+  b.textContent=autoScroll?'⏸ 暂停':'▶ 开始'; b.classList.toggle('on',autoScroll);
+};
+document.getElementById('micBtn').onclick=()=>{ if(recRunning) stopOnline(); else startOnline(); };
+document.getElementById('offlineBtn').onclick=()=>{ if(voskRunning) stopOffline(); else startOffline(); };
+document.getElementById('mirrorBtn').onclick=toggleMirror;
+document.getElementById('resetBtn').onclick=()=>{ if(simRunning) stopSimFollow(); scrollTarget=null; lastAnchorTok=-1; scriptWrap.scrollTop=0; clearHl(); searchFrom=0; tokCursor=0; lastHLKey=-1; spokenText=''; pendingT=null; updateProgress(); };
+document.getElementById('fsBtn').onclick=()=>{ if(!document.fullscreenElement) stage.requestFullscreen(); else document.exitFullscreen(); };
+
+/* ===== v0.1 阅读锚点面板 ===== */
+const anchorPanel=document.getElementById('anchorPanel');
+function toggleAnchorPanel(force){
+  const show=(force===undefined)?!anchorPanel.classList.contains('show'):!!force;
+  anchorPanel.classList.toggle('show',show);
+  document.getElementById('anchorBtn').classList.toggle('on',show);
+}
+function syncAnchorInputs(){
+  document.getElementById('anchorYRange').value=Math.round(anchorRatio*100);
+  document.getElementById('anchorXRange').value=anchorShift;
+  document.getElementById('anchorYVal').textContent=Math.round(anchorRatio*100)+'%';
+  document.getElementById('anchorXVal').textContent=(anchorShift>0?'+':'')+(Math.round(anchorShift*10)/10);
+  localStorage.setItem('anchorY',Math.round(anchorRatio*100));
+  localStorage.setItem('anchorX',anchorShift);
+}
+document.getElementById('anchorBtn').onclick=()=>toggleAnchorPanel();
+document.getElementById('demoAnchorBtn').onclick=()=>toggleAnchorPanel();
+document.getElementById('anchorClose').onclick=()=>toggleAnchorPanel(false);
+document.getElementById('anchorYRange').oninput=e=>{ anchorRatio=+e.target.value/100; syncAnchorInputs(); applyAnchor(); };
+document.getElementById('anchorXRange').oninput=e=>{ anchorShift=+e.target.value; syncAnchorInputs(); applyAnchor(); };
+document.getElementById('showAnchor').onchange=e=>{
+  showAnchorLine=e.target.checked;
+  localStorage.setItem('anchorLine',showAnchorLine?'1':'0');
+  document.getElementById('readLine').classList.toggle('hide',!showAnchorLine);
+};
+/* 手动滚动时立刻接管，取消平滑目标，避免"抢滚动条" */
+scriptWrap.addEventListener('wheel',()=>{ scrollTarget=null; },{passive:true});
+scriptWrap.addEventListener('touchmove',()=>{ scrollTarget=null; },{passive:true});
+let _rzT=null;
+window.addEventListener('resize',()=>{ clearTimeout(_rzT); _rzT=setTimeout(()=>applyAnchor(),120); });
+
+/* 拖拽加载 */
+['dragenter','dragover'].forEach(ev=>stage.addEventListener(ev,e=>{e.preventDefault();document.getElementById('drop').classList.add('show');}));
+['dragleave','drop'].forEach(ev=>stage.addEventListener(ev,e=>{e.preventDefault();if(ev==='drop'||e.target===stage)document.getElementById('drop').classList.remove('show');}));
+stage.addEventListener('drop',e=>{ const f=e.dataTransfer.files[0]; if(f) loadFile(f); });
+
+/* 键盘快捷键 */
+window.addEventListener('keydown',e=>{
+  if(e.target.tagName==='TEXTAREA'||e.target.tagName==='INPUT') return;
+  /* Alt + 方向键：微调锚点上下左右 */
+  if(e.altKey&&/^Arrow(Up|Down|Left|Right)$/.test(e.code)){
+    e.preventDefault();
+    const st=e.shiftKey?5:1;
+    if(e.code==='ArrowUp') anchorRatio=Math.max(0.08,anchorRatio-st/100);
+    else if(e.code==='ArrowDown') anchorRatio=Math.min(0.88,anchorRatio+st/100);
+    else if(e.code==='ArrowLeft') anchorShift=Math.max(-12,anchorShift-st*0.5);
+    else anchorShift=Math.min(12,anchorShift+st*0.5);
+    syncAnchorInputs(); applyAnchor();
+    return;
+  }
+  if(e.code==='Space'){ e.preventDefault(); document.getElementById('autoBtn').click(); }
+  else if(e.code==='ArrowDown'){ scrollTarget=null; scriptWrap.scrollTop+=60; updateProgress(); }
+  else if(e.code==='ArrowUp'){ scrollTarget=null; scriptWrap.scrollTop-=60; updateProgress(); }
+  else if(e.key==='f'||e.key==='F'){ document.getElementById('fsBtn').click(); }
+  else if(e.key==='r'||e.key==='R'){ document.getElementById('resetBtn').click(); }
+  else if(e.key==='m'||e.key==='M'){ toggleMirror(); }
+});
+scriptWrap.addEventListener('scroll',updateProgress);
+
+/* 恢复设置 */
+(function restore(){
+  const f=localStorage.getItem('font'); if(f){ document.getElementById('fontCustom').value=f; }
+  const s=localStorage.getItem('size'); if(s){ document.getElementById('sizeRange').value=s; }
+  const l=localStorage.getItem('lh'); if(l){ document.getElementById('lhRange').value=l; }
+  const sp=localStorage.getItem('speed'); if(sp){ document.getElementById('speedRange').value=sp; }
+  const ay=localStorage.getItem('anchorY'); if(ay!==null){ anchorRatio=Math.max(0.08,Math.min(0.88,+ay/100)); }
+  const ax=localStorage.getItem('anchorX'); if(ax!==null){ anchorShift=Math.max(-12,Math.min(12,+ax)); }
+  const al=localStorage.getItem('anchorLine'); if(al!==null){ showAnchorLine=(al==='1'); document.getElementById('showAnchor').checked=showAnchorLine; }
+  applyFont(); applySize(); applyLh(); applySpeed();
+  syncAnchorInputs(); applyAnchor(-1);
+})();
+</script>
+</body>
+</html>
